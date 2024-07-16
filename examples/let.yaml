@@ -1,0 +1,128 @@
+name: LET
+
+source:
+  name: ISIS Second Target Station Hydrogen Moderator
+  frequency: 10 Hz
+  velocities: (100, 636.8272, 735.0490, 1039.3385, 1469.5520, 1801.3906, 2080.6995, 2325.7107, 2752.7896, 1e9) m/s
+  # duration:  (350, 154.4,    131.2,      90.4,      52.4,      40.8,      32.4,      25.6,      22.4,   20) µs
+  duration:  (350, 350,    350,      350,      350,      350,      350,      350,      350,   350) µs
+  emission_delay: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0) s
+
+primary_spectrometer:
+  frequencies:
+    # The main frequency is that of the pulse shaping chopper
+    - name: Source  # This source frequency is implicitly included, so this line could be omitted
+    - name: HalfResolution
+      highest_harmonic: 15  # this frequency can be set to up-to 12x the source frequency
+    - name: HalfPulser
+      highest_harmonic: 15
+  path_segments:
+    - name: Moderator to Chopper 1 Disk 1 (Resolution)
+      length: 7.83 m
+      guide:
+        velocities: (100, 1e9) m/s
+        short: (7.83, 7.83) m
+        long: (7.83, 7.83) m
+    - name: Chopper 1 Disk 1 to Disk 2
+      length: 0.000002 m
+    - name: Chopper 1 Disk 2 to Chopper 2 (Frame Overlap)
+      length: 0.569998 m
+      guide:
+        velocities: (100, 1e9) m/s
+        short: (0.569998, 0.569998) m
+        long: (0.569998, 0.569998) m
+    - name: Chopper 2 to Chopper 3 (Pulse Remover)
+      length: 3.35 m
+      guide:
+        velocities: (100, 1e9) m/s
+        short: (3.35, 3.35) m
+        long: (3.35, 3.35) m
+    - name: Chopper 3 to Chopper 4 (Decontamination)
+      length: 3.91 m
+      guide:
+        velocities: (100, 1e9) m/s
+        short: (3.91, 3.91) m
+        long: (3.91, 3.91) m
+    - name: Chopper 4 to Chopper 5 Disk 1 (Resolutino)
+      length: 7.836 m
+      guide:
+        velocities: (100, 1e9) m/s
+        short: (7.836, 7.836) m
+        long: (7.836, 7.836) m
+    - name: Chopper 5 Disk 1 to Disk 2
+      length: 0.008 m
+    - name: Chopper 5 Disk 2 to Sample
+      length: 1.492 m
+  choppers:
+    - name: Chopper1_Disk1
+      position: 7.83 m
+      opening: 12.063 degrees
+      radius: 290 mm
+      slots: 6
+      frequency:
+        name: HalfPulser
+      aperture:
+        width: 40 mm
+        height: 94 mm
+    - name: Chopper1_Disk2
+      position: 7.830002 m
+      opening: 12.063 degrees
+      radius: 290 mm
+      slots: 6
+      frequency:
+        name: HalfPulser
+      aperture:
+        width: 40 mm
+        height: 94 mm
+    - name: Chopper2
+      position: 8.2 m
+      opening: 114.6 degrees
+      radius: 545 mm
+      aperture:
+        width: 40 mm
+        height: 94 mm
+    - name: Chopper3
+      position: 11.75 m
+      opening: 16.89 degrees
+      radius: 290 mm
+      slots: 2
+      frequency:
+        name: HalfPulser
+        multiplier: 2
+      aperture:
+        width: 40 mm
+        height: 94 mm
+    - name: Chopper4
+      position: 15.66 m
+      opening: 16.89 degrees
+      radius: 290 mm
+      slots: 6
+      frequency:
+        name: HalfResolution
+      aperture:
+        width: 40 mm
+        height: 94 mm
+    - name: Chopper5_Disk1
+      position: 23.496 m
+      opening: 9.3483 degrees
+      radius: 290 mm
+      slots: 2
+      frequency:
+        name: HalfResolution
+        multiplier: 2
+      aperture:
+        width: 10 mm
+        height: 50 mm
+    - name: Chopper5_Disk2
+      position: 23.504 m
+      opening: 9.3483 degrees
+      radius: 290 mm
+      slots: 2
+      frequency:
+        name: HalfResolution
+        multiplier: 2
+      aperture:
+        width: 10 mm
+        height: 50 mm
+  sample:
+    position: 25.0 m

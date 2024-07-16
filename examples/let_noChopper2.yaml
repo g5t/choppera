@@ -1,0 +1,91 @@
+name: LET
+
+source:
+  name: ISIS Second Target Station Hydrogen Moderator
+  frequency: 10 Hz
+  velocities: (100, 636.8272, 735.0490, 1039.3385, 1469.5520, 1801.3906, 2080.6995, 2325.7107, 2752.7896, 1e9) m/s
+  duration:  (350, 154.4,    131.2,      90.4,      52.4,      40.8,      32.4,      25.6,      22.4,   20) µs
+  emission_delay: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0) s
+
+primary_spectrometer:
+  frequencies:
+    # The main frequency is that of the pulse shaping chopper
+    - name: Source  # This source frequency is implicitly included, so this line could be omitted
+    - name: HalfResolution
+      highest_harmonic: 15  # this frequency can be set to up-to 12x the source frequency
+    - name: HalfPulser
+      highest_harmonic: 15
+  path_segments:
+    - name: Moderator to Disk 1 (Resolution)
+      length: 7.83 m
+      guide:
+        velocities: (100, 1e9) m/s
+        short: (7.83, 7.83) m
+        long: (7.83, 7.83) m
+    - name: Disk 1 to Disk 3 (Pulse Remover)
+      length: 3.92 m
+      guide:
+        velocities: (100, 1e9) m/s
+        short: (3.92, 3.92) m
+        long: (3.92, 3.92) m
+    - name: Disk 3 to Disk 4 (Decontamination)
+      length: 3.91 m
+      guide:
+        velocities: (100, 1e9) m/s
+        short: (3.91, 3.91) m
+        long: (3.91, 3.91) m
+    - name: Disk 4 to Disk 5 (Resolutino)
+      length: 7.84 m
+      guide:
+        velocities: (100, 1e9) m/s
+        short: (7.84, 7.84) m
+        long: (7.84, 7.84) m
+    - name: Disk 5 to Sample
+      length: 1.5 m
+  choppers:
+    - name: Disk 1 (Resolution)
+      position: 7.83 m
+      opening: 12.063 degrees
+      radius: 290 mm
+      slots: 6
+      discs: 2
+      frequency:
+        name: HalfPulser
+      aperture:
+        width: 40 mm
+        height: 94 mm
+    - name: Disk 3 (Pulse Remover)
+      position: 11.75 m
+      opening: 16.89 degrees
+      radius: 290 mm
+      slots: 2
+      frequency:
+        name: HalfPulser
+        multiplier: 2
+      aperture:
+        width: 40 mm
+        height: 94 mm
+    - name: Disk 4 (Decontamination)
+      position: 15.66 m
+      opening: 16.89 degrees
+      radius: 290 mm
+      slots: 6
+      frequency:
+        name: HalfResolution
+      aperture:
+        width: 40 mm
+        height: 94 mm
+    - name: Disk 5 (Resolution)
+      position: 23.5 m
+      opening: 9.3483 degrees
+      radius: 290 mm
+      discs: 2
+      slots: 2
+      frequency:
+        name: HalfResolution
+        multiplier: 2
+      aperture:
+        width: 10 mm
+        height: 50 mm
+  sample:
+    position: 25.0 m
