@@ -7,7 +7,7 @@ name = "choppera"
 dynamic = ["version"]
 description = 'Chopper inverse acceleration transport'
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = "BSD-3-Clause"
 keywords = []
 authors = [
@@ -16,8 +16,6 @@ authors = [
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -61,9 +59,25 @@ exclude_lines = [
   "if TYPE_CHECKING:",
 ]
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/.github",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  "src/choppera",
+]
+
 [tool.hatch.envs.test]
 dependencies = [
   "pytest",
   "pytest-cov",
 ]
 
+[[tool.hatch.envs.test.matrix]]
+python = [
+  "3.10", 
+  "3.11", 
+  "3.12",
+]

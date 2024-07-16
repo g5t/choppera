@@ -9,6 +9,7 @@
 
 - [Installation](#installation)
 - [License](#license)
+- [Development](#development)
 
 ## Installation
 
@@ -19,3 +20,12 @@ pip install choppera
 ## License
 
 `choppera` is distributed under the terms of the [BSD-3-Clause](https://spdx.org/licenses/BSD-3-Clause.html) license.
+
+## Development
+Building `choppera` is achieved through [hatch](https://hatch.pypa.io/)/`hatchling`.
+
+Testing on supported Python versions can be run via
+
+```console
+hatch run test:pytest
+```
