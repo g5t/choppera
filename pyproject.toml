@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "choppera"
+dynamic = ["version"]
+description = 'Chopper inverse acceleration transport'
+readme = "README.md"
+requires-python = ">=3.8"
+license = "BSD-3-Clause"
+keywords = []
+authors = [
+  { name = "Gregory Tucker", email = "gregory.tucker@ess.eu" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+  "polystar~=0.3",
+  "numpy~=2.0",
+  "scipp~=24.6",
+]
+
+[project.urls]
+Documentation = "https://github.com/g5t/choppera#readme"
+Issues = "https://github.com/g5t/choppera/issues"
+Source = "https://github.com/g5t/choppera"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.envs.types]
+extra-dependencies = [
+  "mypy>=1.0.0",
+]
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/choppera tests}"
+
+[tool.coverage.run]
+source_pkgs = ["choppera", "tests"]
+branch = true
+parallel = true
+
+[tool.coverage.paths]
+choppera = ["src/choppera", "*/choppera/src/choppera"]
+tests = ["tests", "*/choppera/tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+
+[tool.hatch.envs.test]
+dependencies = [
+  "pytest",
+  "pytest-cov",
+]
+
