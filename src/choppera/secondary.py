@@ -9,6 +9,7 @@ from polystar import Polygon
 
 from .flightpaths import FlightPath, AnalyzerArm
 
+
 @dataclass
 class SecondarySpectrometer:
     detectors: List[FlightPath]
@@ -18,15 +19,13 @@ class SecondarySpectrometer:
         return min([min(al) for al in all_limits]), max([max(al) for al in all_limits])
 
     def sample_scatter(self, regions: List[Polygon]) -> List[Polygon]:
-        # from nsimplex import Border
-        # iv_min, iv_max = self.inv_velocity_limits()
-        # scattered_regions = []
-        # for region in regions:
-        #     t_min, t_max = region.min(), region.max()
-        #     b = Border(array([[t_min, iv_max], [t_min, iv_min], [t_max, iv_min], [t_max, iv_max]]))
-        #     scattered_regions.append(Polygon(b, []))
-        # return scattered_regions
-        return []
+        iv_min, iv_max = self.inv_velocity_limits()
+        scattered_regions = []
+        for region in regions:
+            t_min, t_max = region.min(), region.max()
+            b = array([[t_min, iv_max], [t_min, iv_min], [t_max, iv_min], [t_max, iv_max]])
+            scattered_regions.append(Polygon(b))
+        return scattered_regions
 
     def project_on_detectors(self, sample_regions: List[Polygon]) -> List[List[Polygon]]:
         scattered = self.sample_scatter(sample_regions)
@@ -49,18 +48,16 @@ class SecondarySpectrometer:
         return projected
 
     def forward_time_distance_diagram(self, first: List[Polygon], zero=0.):
-        #from numpy import array
-        #from nsimplex import Border, Polygon
+        from numpy import array
 
-        #def td_poly(low, up, a, b):
-        #    verts = array([[low.min(), a], [low.max(), a], [up.max(), b], [up.min(), b]])
-        #    return Polygon(Border(verts), [])
+        def td_poly(low, up, a, b):
+            verts = array([[low.min(), a], [low.max(), a], [up.max(), b], [up.min(), b]])
+            return Polygon(verts)
 
-        #parts = []
-        #second_per_detector = self.project_on_detectors(first)
-        #for detector, second in zip(self.detectors, second_per_detector):
-        #    d = detector.td_length()
-        #    parts.append([td_poly(l, u, zero, zero + d) for l, u in zip(first, second)])
+        parts = []
+        second_per_detector = self.project_on_detectors(first)
+        for detector, second in zip(self.detectors, second_per_detector):
+            d = detector.td_length()
+            parts.append([td_poly(l, u, zero, zero + d) for l, u in zip(first, second)])
 
-        #return parts
-        return []
+        return parts

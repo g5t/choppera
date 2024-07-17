@@ -70,11 +70,10 @@ class FlightPath:
         return []
 
     def tinv_overlap(self, other: Polygon, times=None):
-        from nsimplex.polygon import intersection
         if times is None:
             times = other.min(), other.max()
         limits = self.tinv_polygon(times=times)
-        return intersection(other, limits)
+        return other.intersection(limits)
 
 
 @dataclass

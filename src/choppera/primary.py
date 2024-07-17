@@ -9,6 +9,7 @@ from numpy import ndarray, array
 from .flightpaths import FlightPath, Guide
 from .chopper import DiscChopper
 
+
 @dataclass
 class PulsedSource:
     frequency: float
@@ -50,13 +51,12 @@ class PulsedSource:
         return edge, early, late
 
     def tinv_polygon(self):
-       # from nsimplex import Polygon, Border
-       # from numpy import array
-       # vel, early, late = self.early_late()
-       # left = [(t, 1 / v) for t, v in zip(early, vel)]
-       # right = [(t, 1 / v) for t, v in zip(late, vel)]
-       # return Polygon(Border(array(list(reversed(left)) + right)), [])
-       return []
+        from polystar import Polygon
+        from numpy import array
+        vel, early, late = self.early_late()
+        left = [(t, 1 / v) for t, v in zip(early, vel)]
+        right = [(t, 1 / v) for t, v in zip(late, vel)]
+        return Polygon(array(list(reversed(left)) + right))
 
     def arrival_time(self, target: float, centred=False):
         # This was correct when there was only one delay one one duration; now we need to interpolate:
@@ -66,9 +66,9 @@ class PulsedSource:
         if len(indexes) < 1:
             raise RuntimeError("The requested velocity is out of range")
         index = indexes[-1]
-        diff = (target - self.velocities[index]) / (self.velocities[index+1] - self.velocities[index])
-        delay = (1-diff) * self.delay[index] + diff * self.delay[index+1]
-        duration = (1-diff) * self.duration[index] + diff * self.duration[index+1]
+        diff = (target - self.velocities[index]) / (self.velocities[index + 1] - self.velocities[index])
+        delay = (1 - diff) * self.delay[index] + diff * self.delay[index + 1]
+        duration = (1 - diff) * self.duration[index] + diff * self.duration[index + 1]
         return delay + duration / 2 if centred else delay
 
 
@@ -134,20 +134,11 @@ class PrimarySpectrometer:
         return regions
 
     def project_transmitted_on_source(self):
-        # import matplotlib.pyplot as pp
-        # from nsimplex.plot import plot_polygons
-        from nsimplex.polygon import intersection
         regions = self.project_all_on_source()
         remaining = regions[0]
         layers = [remaining]
-        # fig, ax = pp.subplots(1, 1)
-        # plot_polygons(ax, remaining, alpha=0.2)
         for idx in range(1, len(regions)):
-            # for w in regions[idx]:
-            #     intersections = [intersection(r, w) for r in remaining]
-            # plot_polygons(ax, regions[idx], alpha=0.2)
-            remaining = [z for w in regions[idx] for z in [intersection(r, w) for r in remaining] if not z.isempty]
-            # plot_polygons(ax, remaining, color='red', alpha=0.2)
+            remaining = [z for w in regions[idx] for z in [r.intersection(w) for r in remaining] if z.area]
             layers.append(remaining)
         return remaining, layers
 
@@ -167,7 +158,6 @@ class PrimarySpectrometer:
         return at_sample, s_layers
 
     def project_on_source_alternate(self):
-        from nsimplex.polygon import intersection
         from numpy import min, max
         regions = [self.source.tinv_polygon()]
         slowest, fastest = self.source.slowest, self.source.fastest
@@ -178,7 +168,7 @@ class PrimarySpectrometer:
             duration = max(long / slowest + self.source.delay + self.source.duration)
             at_chopper = chopper.tinv_polygons(delay, duration, slowest, fastest)
             at_source = [w.skew_smear(-long, -short) for w in at_chopper]
-            regions = [z for w in at_source for z in [intersection(r, w) for r in regions] if not z.isempty]
+            regions = [z for w in at_source for z in [r.intersection(w) for r in regions] if z.area]
         return regions
 
     def project_on_sample_alternate(self):
@@ -199,35 +189,34 @@ class PrimarySpectrometer:
         return list(sorted(on_sample, key=lambda x: x.min()))
 
     def forward_time_distance_diagram(self):
-       # from numpy import array, min, max
-       # from nsimplex import Border, Polygon
-       # def td_poly(low, up, a, b):
-       #     verts = array([[low.min(), a], [low.max(), a], [up.max(), b], [up.min(), b]])
-       #     border = Border(verts)
-       #     return Polygon(border, [])
+        from polystar import Polygon
+        from numpy import array, min, max
 
-       # first = [self.source.tinv_polygon()]
-       # slowest, fastest = self.source.slowest, self.source.fastest
-       # tot_short, tot_long = 0., 0.
-       # parts = []
-       # zero = 0.
-       # for guide, chopper in self.pairs:
-       #     short, long = guide.tinv_transforms()
-       #     tot_short += short
-       #     tot_long += long
-       #     delay = min(tot_short / fastest + self.source.delay)
-       #     duration = max(tot_long / slowest + self.source.delay + self.source.duration)
-       #     second = [x.skew_smear(short, long) for x in first]
-       #     d = guide.td_length()
-       #     parts.append([td_poly(l, u, zero, zero+d) for l, u in zip(first, second)])
-       #     zero += d
-       #     first = chopper.tinv_overlap(second, delay, duration, slowest, fastest)
-       # short, long = self.sample.tinv_transforms()
-       # second = [x.skew_smear(short, long) for x in first]
-       # d = self.sample.td_length()
-       # parts.append([td_poly(l, u, zero, zero + d) for l, u in zip(first, second)])
-       # return parts
-       return []
+        def td_poly(low, up, a, b):
+            verts = array([[low.min(), a], [low.max(), a], [up.max(), b], [up.min(), b]])
+            return Polygon(verts)
+
+        first = [self.source.tinv_polygon()]
+        slowest, fastest = self.source.slowest, self.source.fastest
+        tot_short, tot_long = 0., 0.
+        parts = []
+        zero = 0.
+        for guide, chopper in self.pairs:
+            short, long = guide.tinv_transforms()
+            tot_short += short
+            tot_long += long
+            delay = min(tot_short / fastest + self.source.delay)
+            duration = max(tot_long / slowest + self.source.delay + self.source.duration)
+            second = [x.skew_smear(short, long) for x in first]
+            d = guide.td_length()
+            parts.append([td_poly(l, u, zero, zero+d) for l, u in zip(first, second)])
+            zero += d
+            first = chopper.tinv_overlap(second, delay, duration, slowest, fastest)
+        short, long = self.sample.tinv_transforms()
+        second = [x.skew_smear(short, long) for x in first]
+        d = self.sample.td_length()
+        parts.append([td_poly(l, u, zero, zero + d) for l, u in zip(first, second)])
+        return parts
 
     def time_distance_openings(self, minimum_time=0., maximum_time=None):
         from numpy import nan
@@ -237,7 +226,7 @@ class PrimarySpectrometer:
         x, y = [], []
         for guide, chopper in self.pairs:
             zero += guide.td_length()
-            windows = chopper.windows_time(delay=minimum_time, duration=maximum_time-minimum_time, sort=True)
+            windows = chopper.windows_time(delay=minimum_time, duration=maximum_time - minimum_time, sort=True)
             last = minimum_time
             for t_open, t_close in windows:
                 if t_open < last:

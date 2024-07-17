@@ -16,5 +16,5 @@ __all__ = [
     "FlightPath",
     "Guide",
     "AnalyzerArm",
-    "SecondarySpectromater",
+    "SecondarySpectrometer",
 ]

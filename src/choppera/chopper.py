@@ -9,11 +9,6 @@ from polystar import Polygon
 
 
 class Aperture:
-    pass
-
-
-@dataclass
-class RectangularAperture(Aperture):
     _half: float
     height: float
     offset: float
@@ -108,7 +103,7 @@ class Chopper:
         self.name = name
         self._frequency = 0.
         self._phase = 0.
-        self._aperture = RectangularAperture(0., 0., 0.)
+        self._aperture = Aperture(0., 0., 0.)
         self.frequency = frequency
         self._to = phase_to
         self.phase = phase
@@ -178,7 +173,8 @@ class DiscChopper(Chopper):
     def __str__(self):
         return f"DiscChopper[{self.name}]"
 
-    def __init__(self, name: str, radius: float, frequency: float, phase_to: Tuple[str, int], phase: float, aperture: Aperture,
+    def __init__(self, name: str, radius: float, frequency: float, phase_to: Tuple[str, int], phase: float,
+                 aperture: Aperture,
                  windows: Tuple[Tuple[float, float], ...], discs=1):
         super().__init__(name, frequency, phase_to, phase, aperture)
         assert radius > 0
@@ -297,12 +293,9 @@ class DiscChopper(Chopper):
         return windows
 
     def tinv_polygons(self, delay=None, duration=None, minimum_velocity=1e-9, maximum_velocity=1e9):
-        # FIXME Replace nsimplex Polygon and Border by polystar equivalent
-        # from nsimplex import Polygon, Border
-        # from numpy import array, vstack, repeat
-        # v = 1 / array([minimum_velocity, maximum_velocity, maximum_velocity, minimum_velocity])
-        # return [Polygon(Border(vstack((repeat(w, 2), v)).T), []) for w in self.windows_time(delay, duration)]
-        return []
+        from numpy import array, vstack, repeat
+        v = 1 / array([minimum_velocity, maximum_velocity, maximum_velocity, minimum_velocity])
+        return [Polygon(vstack((repeat(w, 2), v)).T) for w in self.windows_time(delay, duration)]
 
     def propagate(self, dists: List[Tuple[ndarray, ndarray, ndarray]]) -> List[Tuple[ndarray, ndarray, ndarray]]:
         from numpy import min, max, arange, vstack, nan, logical_and, isnan, all
@@ -349,16 +342,13 @@ class DiscChopper(Chopper):
         return 0. - self.aperture.first - self.windows[window][1]
 
     def tinv_overlap(self, bases: List[Polygon], delay, duration, minimum_velocity=1e-9, maximum_velocity=1e9):
-        #from nsimplex import Polygon, Border
-        #from nsimplex.polygon import intersection
-        #from numpy import array, vstack, repeat
-        #v = 1 / array([minimum_velocity, maximum_velocity, maximum_velocity, minimum_velocity])
-        #regions = []
-        #for base in bases:
-        #    base_delay = base.min(axis=0)
-        #    base_duration = base.max(axis=0) - base_delay
-        #    # print(f"{delay = } {duration = } {base_delay = } {base_duration = }")
-        #    windows = [Polygon(Border(vstack((repeat(w, 2), v)).T), []) for w in self.windows_time(delay, duration)]
-        #    regions.extend([z for z in [intersection(base, w) for w in windows] if not z.isempty])
-        #return regions
-        return []
+        from numpy import array, vstack, repeat
+        v = 1 / array([minimum_velocity, maximum_velocity, maximum_velocity, minimum_velocity])
+        regions = []
+        for base in bases:
+            # base_delay = base.min(axis=0)
+            # base_duration = base.max(axis=0) - base_delay
+            # print(f"{delay = } {duration = } {base_delay = } {base_duration = }")
+            windows = [Polygon(vstack((repeat(w, 2), v)).T) for w in self.windows_time(delay, duration)]
+            regions.extend([z for z in [base.intersection(w) for w in windows] if z.area])
+        return regions

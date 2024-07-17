@@ -16,7 +16,7 @@ class TVPatch:
         assert coords.shape[1] == 2
         assert all(coords >= 0.)
         self.coords = coords
-
-    def polygon(self, **kwargs):
-        from matplotlib.patches import Polygon
-        return Polygon(self.coords, **kwargs)
+    #
+    # def polygon(self, **kwargs):
+    #     from matplotlib.patches import Polygon
+    #     return Polygon(self.coords, **kwargs)
