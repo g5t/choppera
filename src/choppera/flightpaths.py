@@ -1,121 +1,158 @@
 # SPDX-FileCopyrightText: 2024-present Gregory Tucker <gregory.tucker@ess.eu>
 #
 # SPDX-License-Identifier: BSD-3-Clause
+from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple
-from numpy import ndarray
+from typing import Tuple
+from scipp import DataArray, Variable
 from polystar import Polygon
 
-
-def interpolate(positions: ndarray, values: ndarray, at: float) -> float:
-    from numpy import searchsorted
-    second = searchsorted(positions, at)
-    t = (at - positions[second - 1]) / (positions[second] - positions[second - 1])
-    return values[second - 1] + t * (values[second] - values[second - 1])
+from .phase import Phase
+from .utils import interpolate
 
 
-@dataclass
-class FlightPath:
+class BasePath:
     name: str
-    velocity: Tuple[float, ...] = (1e-9, 1e9)
-    nominal: Tuple[float, ...] = (-1., )
+    data: DataArray
+    dim: str
 
-    def __post_init__(self):
-        from numpy import std
-        if len(self.velocity) < 2 or std(self.velocity) == 0.:
-            raise RuntimeError("Multiple unique velocities required")
-        if self.nominal[0] < 0.:
-            self.nominal = tuple([0 for _ in self.velocity])
-        assert len(self.velocity) == len(self.nominal)
+    def __init__(self, name: str, velocity: Variable, **kwarg_variables):
+        from scipp import sort, Variable
+        from numpy import argsort, std
+        self.name = name
+        assert isinstance(velocity, Variable), "Velocity must be a Variable"
+        assert len(velocity) >= 2 and std(velocity.values) > 0, "Multiple unique velocities required"
+        assert velocity.ndim == 1, "Velocity must be 1-dimensional"
 
-    def __len__(self):
-        return len(self.velocity)
+        index = Variable(values=argsort(velocity.values), dims=velocity.dims)
+        coords = {'velocity': velocity}
+        coords.update(kwarg_variables)
+        self.dim = velocity.dims[0]
+        self.data = sort(DataArray(data=index, coords=coords), 'velocity')
 
     def __str__(self):
         return f"[{self.name}]"
 
+    def __len__(self):
+        return self.data.sizes[self.dim]
+
+    @property
+    def velocity(self):
+        return self.data.coords['velocity'].to(unit='m/s')
+
+    @property
+    def nominal(self):
+        if 'nominal' in self.data.coords:
+            return self.data.coords['nominal'].to(unit='m')
+        raise NotImplementedError
+
     @property
     def shortest(self):
-        return self.nominal
+        if 'shortest' in self.data.coords:
+            return self.data.coords['shortest'].to(unit='m')
+        if 'nominal' in self.data.coords:
+            return self.nominal
+        raise NotImplementedError
 
     @property
     def longest(self):
-        return self.nominal
+        if 'longest' in self.data.coords:
+            return self.data.coords['longest'].to(unit='m')
+        if 'nominal' in self.data.coords:
+            return self.nominal
+        raise NotImplementedError
 
-    def tinv_transforms(self, pre=0., post=0.):
+    def tinv_transforms(self, pre: Variable | None, post: Variable | None) -> Tuple[Variable, Variable]:
+        from scipp import min, max, scalar
+        if pre is None:
+            pre = scalar(0., unit='m')
+        if post is None:
+            post = scalar(0., unit='m')
         # These are, strictly speaking, fully dependent on velocity
         # However, implementing that is beyond our ability/need at the moment
         return pre + min(self.shortest), post + max(self.longest)
 
     def td_length(self):
-        # Hopefully there's only one nominal length ...
+        from scipp import sum
         return sum(self.nominal) / len(self.nominal)
 
-    def phase_length(self, target_velocity):
-        from numpy import array
-        return interpolate(array(self.velocity), array(self.nominal), target_velocity)
+    def phase_length(self, target_velocity) -> Variable:
+        from scipp import scalar
+        return scalar(interpolate(self.velocity.values, self.nominal.values, target_velocity), unit=self.velocity.unit)
 
     def inv_velocity_limits(self):
+        from scipp import min, max
         return 1/max(self.velocity), 1/min(self.velocity)
 
-    def tinv_polygon(self, times=None):
-        # from numpy import array
-        # from nsimplex import Border
-        # if times is None:
-        #     times = [0, 1e9]
-        # iv = self.inv_velocity_limits()
-        # points = [[times[0], iv[1]], [times[0], iv[0]], [times[1], iv[0]], [times[1], iv[1]]]
-        # return Polygon(Border(array(points)), [])
-        return []
+    def tinv_polygon(self, times: list[Variable] | None = None) -> Polygon:
+        from scipp import min, max
+        if times is None:
+            times = Variable(values=[0, 1e9], unit='s', dims=['time'])
+        t_min, t_max = [t.to(unit='s').value for t in (min(times), max(times))]
+        iv_min, iv_max = [iv.to(unit='s/m').value for iv in self.inv_velocity_limits()]
+        points = [[t_min, iv_max], [t_min, iv_min], [t_max, iv_min], [t_max, iv_max]]
+        return Polygon(points)
 
-    def tinv_overlap(self, other: Polygon, times=None):
+    def tinv_overlap(self, other: Polygon, times: list[Variable] | None = None) -> Polygon:
         if times is None:
             times = other.min(), other.max()
         limits = self.tinv_polygon(times=times)
         return other.intersection(limits)
 
+    def propagate(self, phases: list[Phase]) -> list[Phase]:
+        from scipp import concat, min, max
+        from uuid import uuid4
+        out = []
+        v = self.velocity
+        short, long = [length/v for length in (self.shortest, self.longest)]
+        dim = str(uuid4())
+        for phase in phases:
+            assert phase.velocity == v
+            times = concat((phase.left + short, phase.left + long, phase.right + short, phase.right + long), dim=dim)
+            out.append(Phase(v, min(times, dim=dim), max(times, dim=dim)))
+        return out
 
-@dataclass
-class Guide(FlightPath):
-    # The fact that Python lets you replace a base class property with a value amazes me
-    shortest: Tuple[float, ...] = (-1., )
-    longest: Tuple[float, ...] = (-1., )
+
+class FlightPath(BasePath):
+
+    def __init__(self, name: str, velocity: Variable, nominal: Variable):
+        super().__init__(name, velocity=velocity, nominal=nominal)
+
+
+class Guide(BasePath):
+    def __init__(self, name: str, velocity: Variable, nominal: Variable, shortest: Variable, longest: Variable):
+        super().__init__(name, velocity=velocity, nominal=nominal, shortest=shortest, longest=longest)
 
     def __str__(self):
         return f"Guide[{self.name}]"
 
-    def __post_init__(self):
-        if self.shortest[0] < 0.:
-            self.shortest = tuple([0. for _ in self.velocity])
-        if self.longest[0] < 0.:
-            self.longest = tuple([0. for _ in self.velocity])
-        if self.nominal[0] < 0.:
-            self.nominal = tuple([(s + l) / 2 for s, l in zip(self.shortest, self.longest)])
-        assert len(self) == len(self.nominal) and len(self) == len(self.longest) and len(self) == len(self.shortest)
+
+#
+# # neutron_mass = 1.674 927 498 04 x 10-27 kg
+# # planck constant = 6.626 070 15  x 10-34 J Hz-1
+# NEUTRON_MASS_OVER_PLANCK_CONSTANT = 1.67492749804e-27 / 6.62607015e-34 / 1e10  # s / m / Å
 
 
-# neutron_mass = 1.674 927 498 04 x 10-27 kg
-# planck constant = 6.626 070 15  x 10-34 J Hz-1
-NEUTRON_MASS_OVER_PLANCK_CONSTANT = 1.67492749804e-27 / 6.62607015e-34 / 1e10  # s / m / Å
-
-
-@dataclass
 class AnalyzerArm(FlightPath):
-    d_spacing: float = 0.  # ångstrom
-    angle: float = 0.  # radian
-    mosaic: float = 0.  # radian
+    d_spacing: Variable
+    angle: Variable
+    mosaic: Variable
+
+    def __init__(self, name: str, velocity: Variable, d_spacing: Variable, angle: Variable, mosaic: Variable):
+        super().__init__(name, velocity=velocity, nominal=d_spacing)
+        self.d_spacing = d_spacing.to(unit='angstrom')
+        self.angle = angle.to(unit='radian')
+        self.mosaic = mosaic.to(unit='radian')
 
     def __str__(self):
         return f"AnalyzerArm[{self.name}]"
 
-    def relative_lambda_uncertainty(self):
-        from numpy import cos, sin
-        return cos(self.angle) / sin(self.angle) * self.mosaic
-
     def inv_velocity_limits(self):
-        from numpy import sin
+        # TODO update this to account for higher-order harmonics -> return a list of ranges
+        from scipp import cos, sin
+        from scipp.constants import Planck, neutron_mass
         wavelength = 2 * self.d_spacing * sin(self.angle)
-        delta_wavelength = wavelength * self.relative_lambda_uncertainty()
-        wavelength_range = wavelength - delta_wavelength / 2, wavelength + delta_wavelength /2
-        return tuple([x * NEUTRON_MASS_OVER_PLANCK_CONSTANT for x in wavelength_range])
+        delta_wavelength = wavelength * cos(self.angle) / sin(self.angle) * self.mosaic.value
+        wavelength_range = wavelength - delta_wavelength / 2, wavelength + delta_wavelength / 2
+        return tuple((x * neutron_mass / Planck).to(unit='s/m') for x in wavelength_range)

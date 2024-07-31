@@ -6,69 +6,83 @@ from dataclasses import dataclass, field
 from typing import List, Tuple
 from numpy import ndarray, array
 
+from scipp import DataArray, Variable
+from polystar import Polygon
+
 from .flightpaths import FlightPath, Guide
 from .chopper import DiscChopper
+from .phase import Phase
 
 
-@dataclass
 class PulsedSource:
-    frequency: float
-    duration: ndarray = field(default=array((1.,)))
-    delay: ndarray = field(default=array((0.,)))
-    velocities: ndarray = field(default=array((0., 1e12)))
+    frequency: Variable
+    data: DataArray
 
-    def __post_init__(self):
+    def __init__(self, frequency: Variable,
+                 duration: Variable | None = None,
+                 delay: Variable | None = None,
+                 velocities: Variable | None = None):
         from numpy import argsort
-        if len(self.velocities) < 2:
-            raise RuntimeError("At least two velocities required!")
-        if len(self.delay) != len(self.velocities) and len(self.delay) > 1:
-            raise RuntimeError("Delay times must match velocities!")
-        if len(self.duration) != len(self.velocities) and len(self.duration) > 1:
-            raise RuntimeError("Duration times must match velocities!")
-        if len(self.delay) < 2:
-            self.delay = self.delay[0] + 0 * self.velocities
-        if len(self.duration) < 2:
-            self.duration = self.duration[0] + 0 * self.velocities
-        index = argsort(self.velocities)
-        self.velocities = self.velocities[index]
-        self.delay = self.delay[index]
-        self.duration = self.duration[index]
+        from scipp import sort
+        if velocities is None:
+            velocities = Variable(values=[0., 1e12], unit='m/s', dims=['velocity'])
+        if delay is None:
+            delay = Variable(values=0. * velocities.values, unit='s', dims=velocities.dims)
+        elif not delay.ndim:
+            delay = Variable(values=delay.value + 0 * velocities.values, unit=delay.unit, dims=velocities.dims)
+        if duration is None:
+            duration = Variable(values=1. + 0 * velocities.values, unit='s', dims=velocities.dims)
+        elif not duration.ndim:
+            duration = Variable(values=duration.value + 0 * velocities.values, unit=duration.unit, dims=velocities.dims)
+
+        self.frequency = frequency
+        # if the delay, duration and velocities do not have consistent shapes, the following will raise an error
+        index = Variable(values=argsort(velocities.values), unit='1', dims=velocities.dims)
+        data = DataArray(data=index, coords={'delay': delay, 'duration': duration, 'velocities': velocities})
+        # sort the data by the velocities
+        self.data = sort(data, 'velocities')
+
+    @property
+    def delay(self):
+        return self.data.coords['delay']
+
+    @property
+    def duration(self):
+        return self.data.coords['duration']
 
     @property
     def slowest(self):
-        from numpy import min
-        return min(self.velocities)
+        from scipp import min
+        return min(self.data.coords['velocities'])
 
     @property
     def fastest(self):
-        from numpy import max
-        return max(self.velocities)
+        from scipp import max
+        return max(self.data.coords['velocities'])
 
-    def early_late(self) -> Tuple[ndarray, ndarray, ndarray]:
-        edge = self.velocities
-        early = self.delay
-        late = early + self.duration
-        return edge, early, late
+    def early_late(self) -> Phase:
+        edge = self.data.coords['velocities']
+        early = self.data.coords['delay']
+        late = early + self.data.coords['duration']
+        return Phase(edge, early, late)
 
-    def tinv_polygon(self):
-        from polystar import Polygon
+    def tinv_polygon(self) -> Polygon:
         from numpy import array
         vel, early, late = self.early_late()
-        left = [(t, 1 / v) for t, v in zip(early, vel)]
-        right = [(t, 1 / v) for t, v in zip(late, vel)]
+        left = [(t, 1 / v) for t, v in zip(early.values, vel.values)]
+        right = [(t, 1 / v) for t, v in zip(late.values, vel.values)]
         return Polygon(array(list(reversed(left)) + right))
 
-    def arrival_time(self, target: float, centred=False):
-        # This was correct when there was only one delay one one duration; now we need to interpolate:
-        # zero = self.delay + self.duration / 2 if centred else self.delay
+    def arrival_time(self, target: float, centred=False) -> float:
         from numpy import flatnonzero
-        indexes = flatnonzero((target - self.velocities) >= 0)
+        de, dr, v = (self.data.coords[x].values for x in ('delay', 'duration', 'velocities'))
+        indexes = flatnonzero((target - v) >= 0)
         if len(indexes) < 1:
             raise RuntimeError("The requested velocity is out of range")
         index = indexes[-1]
-        diff = (target - self.velocities[index]) / (self.velocities[index + 1] - self.velocities[index])
-        delay = (1 - diff) * self.delay[index] + diff * self.delay[index + 1]
-        duration = (1 - diff) * self.duration[index] + diff * self.duration[index + 1]
+        diff = (target - v[index]) / (v[index + 1] - v[index])
+        delay = (1 - diff) * de[index] + diff * de[index + 1]
+        duration = (1 - diff) * dr[index] + diff * dr[index + 1]
         return delay + duration / 2 if centred else delay
 
 
@@ -79,7 +93,7 @@ class PrimarySpectrometer:
     sample: FlightPath  # The final flight path to the sample position from the last chopper (allowed to be nothing or guide)
 
     def __init__(self, source: PulsedSource, pairs: List[Tuple[FlightPath, DiscChopper]], sample: FlightPath):
-        from numpy import allclose
+        from scipp import allclose
         # As a limitation to make everything easy/possible, ensure that all guides use the *same* velocity vectors
         v = pairs[0][0].velocity
         for g, _ in pairs:
@@ -89,7 +103,8 @@ class PrimarySpectrometer:
         self.sample = sample
 
     def setup_phases(self, target_velocity, centred=False):
-        cumulative = 0.
+        from scipp import scalar
+        cumulative = scalar(0., unit='m')
         for guide, chopper in self.pairs:
             cumulative += guide.phase_length(target_velocity)
             zero = self.source.arrival_time(target_velocity, centred=centred)
@@ -112,7 +127,7 @@ class PrimarySpectrometer:
 
     def propagate(self):
         # find the cumulative sum (time, velocity) distributions for each
-        vt = [self.source.early_late(self.pairs[0][0].velocity)]
+        vt = [self.source.early_late()]
         for guide, chopper in self.pairs:
             vt = guide.propagate(vt)
             vt = chopper.propagate(vt)
@@ -120,16 +135,17 @@ class PrimarySpectrometer:
         return vt
 
     def project_all_on_source(self):
-        from numpy import min, max
+        from scipp import scalar, min, max
+        from .utils import skew_smear
         regions = [[self.source.tinv_polygon()]]
         slowest, fastest = self.source.slowest, self.source.fastest
-        short, long = 0., 0.
+        short, long = scalar(0., unit='m'), scalar(0., unit='m')
         for guide, chopper in self.pairs:
             short, long = guide.tinv_transforms(pre=short, post=long)
             delay = min(short / fastest + self.source.delay)
             duration = max(long / slowest + self.source.delay + self.source.duration)
             at_chopper = chopper.tinv_polygons(delay, duration, slowest, fastest)
-            at_source = [window.skew_smear(-long, -short) for window in at_chopper]
+            at_source = [skew_smear(window, -long, -short) for window in at_chopper]
             regions.append(at_source)
         return regions
 
@@ -143,117 +159,139 @@ class PrimarySpectrometer:
         return remaining, layers
 
     def project_transmitted_on_sample(self):
+        from scipp import scalar
+        from .utils import skew_smear
         at_source, layers = self.project_transmitted_on_source()
-        short, long = 0., 0.
+        short, long = scalar(0., unit='m'), scalar(0., unit='m')
 
-        def forward_project(s, l, on):
-            return [x.skew_smear(s, l) for x in on]
+        def forward_project(shrt, lng, on):
+            return [skew_smear(x, shrt.value, lng.value) for x in on]
 
         for guide, chopper in self.pairs:
             short, long = guide.tinv_transforms(pre=short, post=long)
         short, long = self.sample.tinv_transforms(pre=short, post=long)
 
         at_sample = forward_project(short, long, at_source)
-        s_layers = [forward_project(short, long, l) for l in layers]
+        s_layers = [forward_project(short, long, layer) for layer in layers]
         return at_sample, s_layers
 
     def project_on_source_alternate(self):
-        from numpy import min, max
+        from scipp import scalar, min, max
+        from .utils import skew_smear
         regions = [self.source.tinv_polygon()]
         slowest, fastest = self.source.slowest, self.source.fastest
-        short, long = 0., 0.
+        short, long = scalar(0., unit='m'), scalar(0., unit='m')
         for guide, chopper in self.pairs:
             short, long = guide.tinv_transforms(pre=short, post=long)
             delay = min(short / fastest + self.source.delay)
             duration = max(long / slowest + self.source.delay + self.source.duration)
             at_chopper = chopper.tinv_polygons(delay, duration, slowest, fastest)
-            at_source = [w.skew_smear(-long, -short) for w in at_chopper]
+            at_source = [skew_smear(w, -long, -short) for w in at_chopper]
             regions = [z for w in at_source for z in [r.intersection(w) for r in regions] if z.area]
         return regions
 
     def project_on_sample_alternate(self):
-        from numpy import min, max
+        from scipp import scalar, min, max
+        from .utils import skew_smear
         regions = [self.source.tinv_polygon()]
         slowest, fastest = self.source.slowest, self.source.fastest
-        tot_short, tot_long = 0., 0.
+        tot_short, tot_long = scalar(0., unit='m'), scalar(0., unit='m')
         for guide, chopper in self.pairs:
-            short, long = guide.tinv_transforms()  # just this guide, velocity independent (for now)
+            # just this guide, velocity independent (for now)
+            short, long = guide.tinv_transforms(pre=scalar(0., unit='m'), post=scalar(0., unit='m'))
             tot_short += short
             tot_long += long
             delay = min(tot_short / fastest + self.source.delay)
             duration = max(tot_long / slowest + self.source.delay + self.source.duration)
-            moved = [x.skew_smear(short, long) for x in regions]
+            moved = [skew_smear(x, short, long) for x in regions]
             regions = chopper.tinv_overlap(moved, delay, duration, slowest, fastest)
-        short, long = self.sample.tinv_transforms()
-        on_sample = [x.skew_smear(short, long) for x in regions]
+        short, long = self.sample.tinv_transforms(pre=scalar(0., unit='m'), post=scalar(0., unit='m'))
+        on_sample = [skew_smear(x, short, long) for x in regions]
         return list(sorted(on_sample, key=lambda x: x.min()))
 
     def forward_time_distance_diagram(self):
         from polystar import Polygon
-        from numpy import array, min, max
+        from scipp import scalar, min, max
+        from .utils import skew_smear
 
-        def td_poly(low, up, a, b):
-            verts = array([[low.min(), a], [low.max(), a], [up.max(), b], [up.min(), b]])
-            return Polygon(verts)
+        def td_poly(low: Polygon, up: Polygon, a: Variable, b: Variable):
+            from numpy import min as n_min, max as n_max
+            low_min = n_min(low.vertices[:, 0])
+            low_max = n_max(low.vertices[:, 0])
+            up_min = n_min(up.vertices[:, 0])
+            up_max = n_max(up.vertices[:, 0])
+            return Polygon([[low_min, a.value], [low_max, a.value], [up_max, b.value], [up_min, b.value]])
 
         first = [self.source.tinv_polygon()]
         slowest, fastest = self.source.slowest, self.source.fastest
-        tot_short, tot_long = 0., 0.
+        tot_short, tot_long = scalar(0., unit='m'), scalar(0., unit='m')
         parts = []
-        zero = 0.
+        zero = scalar(0., unit='m')
         for guide, chopper in self.pairs:
-            short, long = guide.tinv_transforms()
+            short, long = guide.tinv_transforms(pre=scalar(0., unit='m'), post=scalar(0., unit='m'))
             tot_short += short
             tot_long += long
             delay = min(tot_short / fastest + self.source.delay)
             duration = max(tot_long / slowest + self.source.delay + self.source.duration)
-            second = [x.skew_smear(short, long) for x in first]
+            second = [skew_smear(x, short, long) for x in first]
             d = guide.td_length()
-            parts.append([td_poly(l, u, zero, zero+d) for l, u in zip(first, second)])
+            parts.append([td_poly(low, up, zero, zero+d) for low, up in zip(first, second)])
             zero += d
             first = chopper.tinv_overlap(second, delay, duration, slowest, fastest)
-        short, long = self.sample.tinv_transforms()
-        second = [x.skew_smear(short, long) for x in first]
+        short, long = self.sample.tinv_transforms(pre=scalar(0., unit='m'), post=scalar(0., unit='m'))
+        second = [skew_smear(x, short, long) for x in first]
         d = self.sample.td_length()
-        parts.append([td_poly(l, u, zero, zero + d) for l, u in zip(first, second)])
+        parts.append([td_poly(low, up, zero, zero + d) for low, up in zip(first, second)])
         return parts
 
-    def time_distance_openings(self, minimum_time=0., maximum_time=None):
+    def time_distance_openings(self, minimum_time: Variable | None = None, maximum_time: Variable | None = None):
+        from scipp import scalar
         from numpy import nan
+        if minimum_time is None:
+            minimum_time = scalar(0., unit='s')
         if maximum_time is None:
             maximum_time = 1 / self.source.frequency
-        zero = 0.
+        zero = scalar(0., unit='m')
         x, y = [], []
         for guide, chopper in self.pairs:
             zero += guide.td_length()
             windows = chopper.windows_time(delay=minimum_time, duration=maximum_time - minimum_time, sort=True)
             last = minimum_time
-            for t_open, t_close in windows:
+            for times in windows.transpose(['slot', 'time']):
+                t_open, t_close = times['time', 0], times['time', 1]
                 if t_open < last:
                     pass
                 else:
-                    x.extend([last, t_open, t_open, t_close])
-                    y.extend([zero, zero, nan, nan])
+                    x.extend([last.value, t_open.value, t_open.value, t_close.value])
+                    y.extend([zero.value, zero.value, nan, nan])
                 last = t_close
             if last < maximum_time:
-                x.extend([last, maximum_time, maximum_time])
-                y.extend([zero, zero, nan])
+                x.extend([last.value, maximum_time.value, maximum_time.value])
+                y.extend([zero.value, zero.value, nan])
         return x, y
 
-    def time_distance_frames(self, minimum_time=0., maximum_time=None, offset=0., extra_times=None):
-        from numpy import nan, min
+    def time_distance_frames(self,
+                             minimum_time: Variable | None = None,
+                             maximum_time: Variable | None = None,
+                             offset=0.,
+                             extra_times=None
+                             ):
+        from scipp import scalar, min, sum, concat
+        from numpy import nan
+        if minimum_time is None:
+            minimum_time = scalar(0., unit='s')
         if maximum_time is None:
             maximum_time = 1 / self.source.frequency
-        length = sum([g.td_length() for g, _ in self.pairs])
+        length = sum(concat([g.td_length() for g, _ in self.pairs], dim='guides'))
         x, y = [], []
         zero = min(self.source.delay + offset)
         while zero < maximum_time:
             if zero > minimum_time:
-                x.extend([zero, zero, zero, zero])
-                y.extend([nan, 0, length, nan])
+                x.extend([zero.value, zero.value, zero.value, zero.value])
+                y.extend([nan, 0, length.value, nan])
             zero += 1 / self.source.frequency
         if extra_times:
             for zero in extra_times:
-                x.extend([zero, zero, zero, zero])
-                y.extend([nan, 0, length, nan])
+                x.extend([zero.value, zero.value, zero.value, zero.value])
+                y.extend([nan, 0, length.value, nan])
         return x, y

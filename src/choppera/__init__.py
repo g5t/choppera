@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from .chopper import Chopper, DiscChopper, RectangularAperture
+from .chopper import Chopper, DiscChopper, Aperture
 from .primary import PrimarySpectrometer, PulsedSource
 from .flightpaths import FlightPath, Guide, AnalyzerArm
 from .secondary import SecondarySpectrometer
@@ -10,7 +10,7 @@ from .secondary import SecondarySpectrometer
 __all__ = [
     "Chopper",
     "DiscChopper",
-    "RectangularAperture",
+    "Aperture",
     "PrimarySpectrometer",
     "PulsedSource",
     "FlightPath",
