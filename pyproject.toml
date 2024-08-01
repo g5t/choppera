@@ -23,9 +23,10 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
-  "polystar~=0.3",
+  "polystar~=0.4",
   "numpy~=2.0",
   "scipp~=24.6",
+  "scipy>=1.7.0",
   "strictyaml~=1.7",
 ]
 
