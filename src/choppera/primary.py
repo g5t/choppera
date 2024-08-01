@@ -35,6 +35,7 @@ class PulsedSource:
         elif not duration.ndim:
             duration = Variable(values=duration.value + 0 * velocities.values, unit=duration.unit, dims=velocities.dims)
 
+
         self.frequency = frequency
         # if the delay, duration and velocities do not have consistent shapes, the following will raise an error
         index = Variable(values=argsort(velocities.values), unit='1', dims=velocities.dims)

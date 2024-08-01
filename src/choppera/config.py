@@ -10,83 +10,122 @@ from strictyaml.validators import Validator, SeqValidator
 from dataclasses import dataclass
 
 
-# TODO more-robust unit handling via scipp
+def separate_value_unit(x: str):
+    """Separate a value and its unit using scipp.Unit parsing
+
+    Expected valid inputs are of one of three forms:
+    1. A constant and a unit
+        CONSTANT UNIT
+    2. A tuple of constants and a unit
+        (CONSTANT, CONSTANT, ..., CONSTANT) UNIT
+    3. A list of constants and a unit
+        [CONSTANT, CONSTANT, ..., CONSTANT] UNIT
+
+    As the unit is determined greedily and scipp.Units are allowed to have scaling factors,
+    the value and unit may not be as expected if the final ')' or ']' are missing from the line
+    or otherwise a constant directly precedes the unit, e.g.,
+        CONSTANT CONSTANT UNIT
+
+    """
+    from scipp import Unit, UnitError
+    # split on spaces
+    x_split = x.split()
+    # try to find a valid unit in the string (greedily)
+    loop = True
+    index = 1  # there (should) always be a number of some sort before the unit
+    unit = None
+    while loop and index < len(x_split):
+        try:
+            unit = Unit(' '.join(x_split[index:]))
+            loop = False
+        except UnitError:
+            index += 1
+    return ' '.join(x_split[:index]), unit
 
 
-def parse_value(x: str, expected_unit: str = None, expected_length: int = -1):
-    power = 0
-    if expected_unit is None:
-        value = x
+def is_simple_tree(tree):
+    """Recursively check if the abstract syntax tree is built out of simple (self-contained) elements
+
+    Allowed contents are lists, tuples, and numeric constants.
+
+    This is a more-restrictive pre-check for the AST module literal_eval function, which currently only allows,
+    "strings, bytes, numbers, tuples, lists, dicts, sets, booleans, None and Ellipsis"
+    """
+    from ast import Expression, Tuple, List, Constant
+    # since the parse _was_ done in 'eval' mode, the root of the tree is an Expression
+    # (If 'expr' was used it might be a Module with one or more Expr in a list at tree.body)
+    if isinstance(tree, Expression):
+        tree = tree.body
+    if isinstance(tree, (Tuple, List)):
+        return all(is_simple_tree(x) for x in tree.elts)
+    if isinstance(tree, Constant):
+        return isinstance(tree.value, (int, float))
+    return False
+
+
+def parse_value_ast(x: str,
+                    expected_unit: str | None = None,
+                    expected_shape: list[int] | None = None,
+                    dims: list[str] | None = None,
+                    dtype: str = 'float64'
+                    ):
+    """Use the python Abstract Syntax Tree to more-safely load values"""
+    from ast import parse, literal_eval
+    from scipp import scalar, Variable, UnitError
+    from numpy import array as n_array
+    value, unit = separate_value_unit(x)
+    tree = parse(value, mode='eval')
+    if is_simple_tree(tree):
+        value = literal_eval(tree)
+
+    if isinstance(value, str):
+        return value
+
+    check_shape = False
+    if isinstance(value, (float, int)):
+        if dims is not None and len(dims) > 0:
+            value = Variable(values=[value], unit=unit, dims=dims, dtype=dtype)
+            check_shape = True
+        else:
+            value = scalar(value, unit=unit, dtype=dtype)
+            if expected_shape is not None and len(expected_shape) > 0:
+                raise RuntimeError(f"Expected {len(expected_shape)}-D data but found scalar value")
+    elif isinstance(value, (tuple, list)):
+        if dims is None:
+            dims = [f'dim{n}' for n in range(n_array(value).ndim)]
+        value = Variable(values=value, unit=unit, dims=dims, dtype=dtype)
+        check_shape = True
     else:
-        x_split = x.split()
-        if len(x_split) > 2:
-            # multiple comma-separated values? (hopefully as a literal tuple)
-            x_split = ' '.join(x_split[:-1]), x_split[-1]
-        if len(x_split) != 2:
-            raise RuntimeError(f"{x} does not match '[value] [unit]' expected format")
-        value, unit = x_split[0], x_split[1]
-        if expected_unit is None:
-            expected_unit = unit
-        if unit != expected_unit:
-            # attempt to support *very limited* power conversions
-            pack = {'m': {'cm': 2, 'mm': 3, 'um': 6, 'µm': 6, 'nm': 9, 'å': 10, 'angstrom': 10},
-                    'mm': {'m': -3, 'cm': -1, 'um': 3, 'µm': 3, 'nm': 6, 'å': 7, 'angstrom': 7},
-                    's': {'ms': 3, 'µs': 6, 'us': 6},
-                    'ms': {'s': -3, 'µs': 3, 'us': 3},
-                    'µs': {'s': -6, 'ms': -3}
-                    }
-            if expected_unit not in pack:
-                raise RuntimeError("No conversion for {unit} to {expected_unit")
-            known = pack[expected_unit]
-            if not unit.lower() in known:
-                raise RuntimeError("Unknown {unit} for conversion to {expected_unit}")
-            power = known[unit.lower()]
-    # This is a not-safe thing to do if this code should ever run as part of a service, e.g. on a server
-    # A malicious user could create an entry like '__import__("pathlib").Path().absolute()' to do nefarious things
-    #
-    # Running on your own machine as your own user, you can't do anything special; so just ensure
-    # the input you provide doesn't attempt anything bad
-    value = eval(value, {})
-    if expected_length > -1:
-        if isinstance(value, tuple) and len(value) != expected_length:
-            raise RuntimeError(f"Expected length {expected_length} item but got {len(value)=}")
-        elif not isinstance(value, tuple) and expected_length > 0:
-            raise RuntimeError(f"Expected length{expected_length} item but got a scalar")
-    power = 10 ** power
-    if isinstance(value, tuple):
-        value = tuple([v / power for v in value])
-    else:
-        value /= power
+        raise RuntimeError("Value to parse should be a string, a numeric constant, or a tuple or list of constants")
+    if expected_unit is not None and value.unit != expected_unit:
+        try:
+            value = value.to(unit=expected_unit)
+        except UnitError:
+            found = value.unit if value.unit else "None"
+            raise RuntimeError(f"Expected unit {expected_unit} does not match {found} which is not convertible to it")
+
+    if check_shape and expected_shape is not None:
+        for shape, dim in zip(expected_shape, dims):
+            if value.sizes[dim] != shape:
+                raise RuntimeError(f"Expected {shape} elements along {dim} but found {value.sizes[dim]}")
     return value
 
 
 class List(ScalarValidator):
     def validate_scalar(self, chunk):
-        return parse_value(chunk.contents)
+        value = parse_value_ast(chunk.contents)
+        return tuple(value.values) if value.ndim else value.value
 
     def to_yaml(self, data):
         return f"{data}"
 
 
-class ScippVariable(ScalarValidator):
-    def __init__(self, unit: str, dims: list[str] | None = None, elements: int | None = None):
+class ScippScalar(ScalarValidator):
+    def __init__(self, unit: str):
         self.unit = unit
-        if dims is None:
-            from uuid import uuid4
-            dims = [str(uuid4())]
-        self.dims = dims
-        self.elements = elements
 
     def validate_scalar(self, chunk):
-        from scipp import scalar, Variable
-        value = parse_value(chunk.contents, self.unit)
-        if isinstance(value, tuple):
-            if self.elements is not None:
-                assert len(value) == self.elements, f"Expected {self.elements} elements but got {len(value)}"
-            return Variable(values=list(value), unit=self.unit, dims=self.dims)
-        if self.elements is not None:
-            assert self.elements == 1, f"Expected {self.elements} elements but got a scalar"
-        return scalar(value, unit=self.unit)
+        return parse_value_ast(chunk.contents, expected_unit=self.unit)
 
     def to_yaml(self, data):
         from scipp import Variable
@@ -99,8 +138,18 @@ class ScippVariable(ScalarValidator):
             elif data.ndim == 1:
                 data = tuple(data.values)
             else:
-                raise RuntimeError(f"Cannot convert {data} to a scalar")
+                raise RuntimeError(f"Cannot convert {data} to a YAML scalar")
         return f"{data} {self.unit}"
+
+
+class ScippVariable(ScippScalar):
+    def __init__(self, unit: str, dims: list[str], shape: list[int] | None = None):
+        super().__init__(unit)
+        self.dims = dims
+        self.shape = shape
+
+    def validate_scalar(self, chunk):
+        return parse_value_ast(chunk.contents, expected_unit=self.unit, expected_shape=self.shape, dims=self.dims)
 
 
 class PairStrInt(ScalarValidator):
@@ -118,8 +167,8 @@ class PairStrInt(ScalarValidator):
 
 SOURCE_SCHEMA = Map({
     'name': Str(),
-    'frequency': ScippVariable('Hz'),
-    'duration': ScippVariable('s', ['wavelength']),
+    'frequency': ScippScalar('Hz'),
+    'duration': ScippScalar('s'),
     'velocities': ScippVariable('m/s', ['wavelength']),
     'emission_delay': ScippVariable('s', ['wavelength']),
 })
@@ -134,30 +183,30 @@ FREQUENCY_SCHEMA = Map({
 
 SEGMENT_SCHEMA = Map({
     'name': Str(),
-    'length': ScippVariable('m'),
+    'length': ScippScalar('m'),
     Optional('guide'): Map({
-        'velocities': ScippVariable('m/s', ['wavelength_limit'], 2),
-        Optional('short'): ScippVariable('m', ['wavelength_limit'], 2),
-        Optional('long'): ScippVariable('m', ['wavelength_limit'], 2),
+        'velocities': ScippVariable('m/s', ['wavelength_limit'], [2]),
+        Optional('short'): ScippVariable('m', ['wavelength_limit'], [2]),
+        Optional('long'): ScippVariable('m', ['wavelength_limit'], [2]),
     }),
 })
 
 CHOPPER_SCHEMA = Map({
     'name': Str(),
-    'position': ScippVariable('m'),
-    'opening': ScippVariable('degrees'),
-    'radius': ScippVariable('mm'),
+    'position': ScippScalar('m'),
+    'opening': ScippScalar('degrees'),
+    'radius': ScippScalar('mm'),
     Optional('discs'): Int(),
     Optional('slots'): Int(),
     Optional('frequency'): Map({'name': Str(), Optional('multiplier'): Int()}),
     'aperture': Map({
-        'width': ScippVariable('mm'),
-        'height': ScippVariable('mm'),
-        Optional('offset'): ScippVariable('mm')
+        'width': ScippScalar('mm'),
+        'height': ScippScalar('mm'),
+        Optional('offset'): ScippScalar('mm')
     })
 })
 
-SAMPLE_SCHEMA = Map({'position': ScippVariable('m')})
+SAMPLE_SCHEMA = Map({'position': ScippScalar('m')})
 
 PRIMARY_SCHEMA = Map({
     'frequencies': Seq(FREQUENCY_SCHEMA),
