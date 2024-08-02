@@ -106,7 +106,36 @@ def test_pulsed_source():
 
 
 def test_primary_spectrometer():
+    from scipp import scalar, array, allclose
     from choppera.config import parse, parse_primary_spectrometer
     mock = parse(mock_config())
     spec = parse_primary_spectrometer(mock)
     # TODO extend this beyond just verifying that it does not throw an error
+
+    # Verify the source parameters
+    source = spec.source
+    assert source.frequency == scalar(50.0, unit='Hz'), "The frequency should stay a scalar"
+    assert allclose(source.duration, array(values=[1e-7, 1e-7], dims=['wavelength'], unit='s')), "Duration is promoted"
+    assert source.slowest == scalar(100.0, unit='m/s')
+    assert source.fastest == scalar(1e9, unit='m/s')
+    assert allclose(source.data.coords['velocities'], array(values=[100, 1e9], dims=['wavelength'], unit='m/s'))
+    assert allclose(source.delay, array(values=[1e-7, 0], dims=['wavelength'], unit='s'))
+
+    # Verify the guide values
+    assert len(spec.pairs) == 1, "Only one chopper, so only one set of guide-chopper pairs"
+    guide, chopper = spec.pairs[0]
+
+    assert 'Moderator to Chopper' == guide.name
+    assert allclose(guide.nominal, array(values=[3.14, 3.14], unit='m', dims=['wavelength_limit']))
+    assert allclose(guide.velocity, array(values=[100, 1e9], dims=['wavelength_limit'], unit='m/s'))
+
+    assert 'Chopper' == chopper.name
+    assert chopper.radius == scalar(350., unit='mm').to(unit='m')
+    assert chopper.discs == 2
+    assert chopper.period == 1 / source.frequency
+
+    # And the final path length from the chopper to sample exists too
+    final = spec.sample
+    assert 'Chopper to Sample' == final.name
+    assert allclose(final.nominal, array(values=[4., 4.], unit='m', dims=['wavelength_limit']))
+    assert allclose(final.velocity, array(values=[100, 1e9], dims=['velocity'], unit='m/s'))
