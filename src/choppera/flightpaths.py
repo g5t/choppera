@@ -51,17 +51,13 @@ class BasePath:
     def shortest(self):
         if 'shortest' in self.data.coords:
             return self.data.coords['shortest'].to(unit='m')
-        if 'nominal' in self.data.coords:
-            return self.nominal
-        raise NotImplementedError
+        return self.nominal
 
     @property
     def longest(self):
         if 'longest' in self.data.coords:
             return self.data.coords['longest'].to(unit='m')
-        if 'nominal' in self.data.coords:
-            return self.nominal
-        raise NotImplementedError
+        return self.nominal
 
     def tinv_transforms(self, pre: Variable | None, post: Variable | None) -> Tuple[Variable, Variable]:
         from scipp import min, max, scalar
