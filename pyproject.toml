@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "choppera"
 dynamic = ["version"]
-description = 'Chopper inverse acceleration transport'
+description = 'Chopper inverse velocity transport'
 readme = "README.md"
 requires-python = ">=3.10"
 license = "BSD-3-Clause"
