@@ -37,6 +37,6 @@ jobs:
         run: hatch test
       - name: Build dist
         run: hatch build
-      - name: Publish on PyPI
-        if: github.event_name == 'release' && github.event.action == 'published'
-        run: hatch publish
+      - name: Publish artifacts to PyPI
+        if: ${{ github.event.action == 'published' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
