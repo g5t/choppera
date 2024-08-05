@@ -295,3 +295,47 @@ def primary_spectrometer(inst: Group,
     final_path = FlightPath(f'{last} to {sample_name}', velocity_range, length)
 
     return PrimarySpectrometer(source, pairs, final_path)
+
+
+def primary_periods(*args, **kwargs):
+    from numpy import hstack
+    from scipp import Variable, min, max
+    primary = primary_spectrometer(*args, **kwargs)
+    t_vs_inverse_v_polys_at_sample, s_layers = primary.project_transmitted_on_sample()
+    # extract all times from the polygons
+    times = Variable(values=hstack([p.vertices[:, 0] for p in t_vs_inverse_v_polys_at_sample]), dims=['time'], unit='s')
+    min_time = min(times)
+    max_time = max(times)
+    period = (1 / primary.source.frequency).to(unit='s')
+    assert max_time - min_time <= period, "The time range is too large for the source frequency"
+    n = min_time % period
+    delta = min_time - n * period
+    return n, delta
+
+
+def primary_shortest_time(inst: Group,
+                          source: str,
+                          sample: str,
+                          frequency: Variable,
+                          duration: Variable,
+                          delay: Variable,
+                          velocity: Variable):
+    from numpy import hstack
+    from scipp import min
+    primary = primary_spectrometer(inst, source, sample, frequency, duration, delay, velocity)
+    t_vs_inverse_v_polys_at_sample, s_layers = primary.project_transmitted_on_sample()
+    # extract all times from the polygons
+    times = Variable(values=hstack([p.vertices[:, 0] for p in t_vs_inverse_v_polys_at_sample]), dims=['time'], unit='s')
+    return min(times)
+
+
+def unwrap(times: Variable, frequency: Variable, shortest_time: Variable):
+    from scipp import floor_divide, min, max
+    unit = times.unit
+    period = (1 / frequency).to(unit=unit, copy=False)
+    shortest_time = shortest_time.to(unit=unit, copy=False)
+    reference_time = floor_divide(shortest_time, period) * period
+    contiguous = (times + reference_time - shortest_time) % period
+    assert min(contiguous).value >= 0, "Negative time in unwrapped times"
+    assert max(contiguous) <= period, "Time exceeds period in unwrapped times"
+    return contiguous + shortest_time
