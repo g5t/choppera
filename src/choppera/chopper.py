@@ -219,18 +219,19 @@ class DiscChopper(Chopper):
     def __init__(self,
                  name: str,
                  radius: Variable,
-                 frequency: Variable,
-                 phase_to: Tuple[str, int],
-                 phase: Variable,
-                 aperture: Aperture,
-                 windows: Variable,
+                 frequency: Variable | None = None,
+                 phase_to: Tuple[str, int] | None = None,
+                 phase: Variable | None = None,
+                 aperture: Aperture | None = None,
+                 windows: Variable | None = None,
                  discs=1
                  ):
         super().__init__(name, frequency, phase_to, phase, aperture)
         assert radius > 0 * radius
         self.radius = radius.to(unit='m', dtype='float64')
         self._windows = Variable(values=[[0, 0]], dims=['slot', 'window'], unit='radian', dtype='float64')
-        self.windows = windows
+        if windows is not None:
+            self.windows = windows
         self.discs = discs
 
     @property

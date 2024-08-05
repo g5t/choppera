@@ -113,6 +113,12 @@ class BasePath:
 class FlightPath(BasePath):
 
     def __init__(self, name: str, velocity: Variable, nominal: Variable):
+        from scipp import ones
+        if nominal.ndim != velocity.ndim:
+            if nominal.ndim == 0:
+                nominal = nominal * ones(dims=velocity.dims, shape=velocity.shape, dtype='float64')
+            else:
+                raise RuntimeError("Non-scalar nominal distances must match dimensionality (and shape) of velocities")
         super().__init__(name, velocity=velocity, nominal=nominal)
 
 

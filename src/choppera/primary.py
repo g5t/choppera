@@ -35,7 +35,6 @@ class PulsedSource:
         elif not duration.ndim:
             duration = Variable(values=duration.value + 0 * velocities.values, unit=duration.unit, dims=velocities.dims)
 
-
         self.frequency = frequency
         # if the delay, duration and velocities do not have consistent shapes, the following will raise an error
         index = Variable(values=argsort(velocities.values), unit='1', dims=velocities.dims)
@@ -91,7 +90,7 @@ class PulsedSource:
 class PrimarySpectrometer:
     source: PulsedSource
     pairs: List[Tuple[FlightPath, DiscChopper]]
-    sample: FlightPath  # The final flight path to the sample position from the last chopper (allowed to be nothing or guide)
+    sample: FlightPath  # The path to the sample position from the last chopper (allowed to be nothing or guide)
 
     def __init__(self, source: PulsedSource, pairs: List[Tuple[FlightPath, DiscChopper]], sample: FlightPath):
         from scipp import allclose
