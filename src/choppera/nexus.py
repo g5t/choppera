@@ -1,5 +1,6 @@
 from scipp import Variable
 from scippnexus import Group
+from .primary import PrimarySpectrometer
 
 
 def guess_group_geometry(group: Group):
@@ -218,7 +219,6 @@ def primary_spectrometer(inst: Group,
 
     from .chopper import Aperture, DiscChopper
     from .flightpaths import FlightPath
-    from .primary import PrimarySpectrometer
 
     assert 'NX_class' in inst.attrs and inst.attrs['NX_class'] == 'NXinstrument'
 
@@ -313,16 +313,31 @@ def primary_periods(*args, **kwargs):
     return n, delta
 
 
-def primary_shortest_time(inst: Group,
-                          source: str,
-                          sample: str,
-                          frequency: Variable,
-                          duration: Variable,
-                          delay: Variable,
-                          velocity: Variable):
+def primary_shortest_time(primary: PrimarySpectrometer):
+    """Find the minimum arrival time at the sample position for a given spectrometer configuration
+
+    Note
+    ----
+    The internal steps taken by this function are:
+    1. Find the allowed phase space at the source in (time, inverse velocity) space
+    2. Project the allowed phase space onto the sample
+    3. Extract the minimum time from the projected polygon(s)
+
+    The first two steps may be slow and the result is small, so this function may benefit greatly from caching.
+    Consider using the `@cache` decorator from `functools` to cache the result of this function.
+
+    Parameters
+    ----------
+    primary: choppera.PrimarySpectrometer
+        A fully constructed primary spectrometer with the method `project_transmitted_on_sample`
+
+    Returns
+    -------
+    scipp.Variable
+        The minimum neutron arrival time at the sample position for the given spectrometer configuration
+    """
     from numpy import hstack
     from scipp import min
-    primary = primary_spectrometer(inst, source, sample, frequency, duration, delay, velocity)
     t_vs_inverse_v_polys_at_sample, s_layers = primary.project_transmitted_on_sample()
     # extract all times from the polygons
     times = Variable(values=hstack([p.vertices[:, 0] for p in t_vs_inverse_v_polys_at_sample]), dims=['time'], unit='s')
@@ -330,6 +345,24 @@ def primary_shortest_time(inst: Group,
 
 
 def unwrap(times: Variable, frequency: Variable, shortest_time: Variable):
+    """Unwrap times at the sample position to be contiguous and within a single period of the source frequency
+
+    Parameters
+    ----------
+    times: scipp.Variable
+        The in-frame times at the sample position. The values should be in the range (0, 1/frequency) and the
+        dimension should be 'time'. The shortest_time determines where in the range the times start, and is used
+        to ensure the unwrapped times are contiguous.
+    frequency: scipp.Variable
+        The repetition frequency of the PulsedSource
+    shortest_time: scipp.Variable
+        The minimum arrival time at the sample position for a given spectrometer configuration
+
+    Returns
+    -------
+    scipp.Variable
+        The unwrapped times at the sample position.
+    """
     from scipp import floor_divide, min, max
     unit = times.unit
     period = (1 / frequency).to(unit=unit, copy=False)

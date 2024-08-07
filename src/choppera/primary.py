@@ -18,6 +18,15 @@ class PulsedSource:
     frequency: Variable
     data: DataArray
 
+    def __eq__(self, other):
+        from scipp import allclose
+        dataclose = all(allclose(v, other.data.coords[k]) for k, v in self.data.coords.items())
+        return dataclose and allclose(self.frequency, other.frequency)
+
+    def __hash__(self):
+        coords = [str(v.values) for v in self.data.coords.values()]
+        return hash((str(self.frequency.values), *coords))
+
     def __init__(self, frequency: Variable,
                  duration: Variable | None = None,
                  delay: Variable | None = None,
@@ -91,6 +100,13 @@ class PrimarySpectrometer:
     source: PulsedSource
     pairs: List[Tuple[FlightPath, DiscChopper]]
     sample: FlightPath  # The path to the sample position from the last chopper (allowed to be nothing or guide)
+
+    def __eq__(self, other):
+        pairs_match = all([fa == fb and da == db for (fa, da), (fb, db) in zip(self.pairs, other.pairs)])
+        return self.source == other.source and pairs_match and self.sample == other.sample
+
+    def __hash__(self):
+        return hash((self.source, tuple(self.pairs), self.sample))
 
     def __init__(self, source: PulsedSource, pairs: List[Tuple[FlightPath, DiscChopper]], sample: FlightPath):
         from scipp import allclose

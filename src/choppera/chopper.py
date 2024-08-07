@@ -22,6 +22,16 @@ class Aperture:
     first: Variable
     second: Variable
 
+    def __eq__(self, other):
+        from scipp import allclose
+        mine = self.width, self.height, self.offset, self.first, self.second
+        theirs = other.width, other.height, other.offset, other.first, other.second
+        return all(allclose(m, t) for m, t in zip(mine, theirs))
+
+    def __hash__(self):
+        arrays = [str(x.values) for x in (self.width, self.height, self.offset, self.first, self.second)]
+        return hash(tuple(arrays))
+
     def __init__(self, width: Variable | None = None, height: Variable | None = None, offset: Variable | None = None):
         from scipp import atan2, scalar
         if width is None:
@@ -122,6 +132,17 @@ class Chopper:
     _phase: Variable
     _aperture: Aperture
 
+    def __eq__(self, other):
+        from scipp import allclose
+        mine = self.frequency, self.phase
+        theirs = other.frequency, other.phase
+        sc = all(allclose(m, t) for m, t in zip(mine, theirs))
+        return self.name == other.name and self.aperture == other.aperture and sc
+
+    def __hash__(self):
+        arrays = self._frequency.values, self._to, self._phase.values
+        return hash((self.name, *[str(x) for x in arrays], self._aperture))
+
     def __init__(self,
                  name: str,
                  frequency: Variable | None = None,
@@ -212,6 +233,16 @@ class DiscChopper(Chopper):
     radius: Variable
     _windows: Variable
     _discs: int = 1
+
+    def __eq__(self, other):
+        from scipp import allclose
+        mine = self.radius, self.windows
+        theirs = other.radius, other.windows
+        return super().__eq__(other) and all(allclose(m, t) for m, t in zip(mine, theirs)) and self.discs == other.discs
+
+    def __hash__(self):
+        arrays = self.radius.values, self._windows.values
+        return hash((super().__hash__(), *[str(x) for x in arrays], self._discs))
 
     def __str__(self):
         return f"DiscChopper[{self.name}]"

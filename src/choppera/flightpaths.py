@@ -17,6 +17,19 @@ class BasePath:
     data: DataArray
     dim: str
 
+    def __eq__(self, other):
+        from scipp import allclose
+        mine = self.data.coords
+        theirs = other.data.coords
+        for key in mine:
+            if key not in theirs or not allclose(mine[key], theirs[key]):
+                return False
+        return self.name == other.name
+
+    def __hash__(self):
+        coords = [str(v.values) for v in self.data.coords.values()]
+        return hash((self.name, *coords, self.dim))
+
     def __init__(self, name: str, velocity: Variable, **kwarg_variables):
         from scipp import sort, Variable
         from numpy import argsort, std
@@ -140,6 +153,17 @@ class AnalyzerArm(FlightPath):
     d_spacing: Variable
     angle: Variable
     mosaic: Variable
+
+    def __eq__(self, other):
+        from scipp import allclose
+        d_spacing = allclose(self.d_spacing, other.d_spacing)
+        angle = allclose(self.angle, other.angle)
+        mosaic = allclose(self.mosaic, other.mosaic)
+        return super().__eq__(other) and d_spacing and angle and mosaic
+
+    def __hash__(self):
+        arrays = [str(v.values) for v in (self.d_spacing, self.angle, self.mosaic)]
+        return hash((super().__hash__(), *arrays))
 
     def __init__(self, name: str, velocity: Variable, d_spacing: Variable, angle: Variable, mosaic: Variable):
         super().__init__(name, velocity=velocity, nominal=d_spacing)
