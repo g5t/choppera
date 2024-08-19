@@ -10,15 +10,22 @@ def interpolate(positions: ndarray[float], values: ndarray[float], at: float) ->
 
 
 def skew_smear(poly: Polygon, factor0, factor1) -> Polygon:
-    from numpy import vstack
+    from numpy import vstack, einsum
     from scipp import Variable
     if isinstance(factor0, Variable):
         factor0 = factor0.value
     if isinstance(factor1, Variable):
         factor1 = factor1.value
-    source = 1
-    sink = 0
-    p0 = poly.skew(factor0, source, sink)
-    p1 = p0.skew(factor1, source, sink)
+
+    # TODO investigate why poly.skew nor poly.transform works in some cases -- object lifetime issues?
+    # The problem call path is primary::project_all_on_source -> utils::skew_smear -> poly.skew
+    # which uses a list comprehension. Switching the list comprehension for a for loop does not fix the issue.
+    t0 = [[1., factor0], [0., 1.]]
+    t1 = [[1., factor1], [0., 1.]]
+    # v0 = poly.transform(t0).vertices
+    # v1 = poly.transform(t1).vertices
+    v0 = einsum('ij,kj->ki', t0, poly.vertices)
+    v1 = einsum('ij,kj->ki', t1, poly.vertices)
+
     # Concatenate all skewed vertices, then find the convex hull polygon containing them all
-    return Polygon(vstack((p0.vertices, p1.vertices)))
+    return Polygon(vstack((v0, v1)))

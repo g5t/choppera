@@ -126,6 +126,25 @@ def vector_append_at(xy: ndarray, ats: List[float]) -> ndarray:
 
 
 class Chopper:
+    """A chopper is a device which periodically blocks or opens a pathway in a neutron instrument
+
+    Parameters
+    ----------
+    name : str
+        The name of the chopper
+    frequency : Variable, optional
+        The frequency of the chopper in Hz
+    phase_to : Tuple[str, int], optional
+        The name of the frequency to which the chopper is synchronized, and the harmonic overtone
+    phase : Variable, optional
+        The phase of the chopper in radians, zero corresponds to the zero-angle of the chopper passing a reference
+        point (here forced to be the center of the beam aperture) when the harmonic overtone of the reference frequency
+        completes a cycle.
+        This could alternatively be the angle relative to the arrival time of a specific wavelength of neutrons
+        at the chopper.
+    aperture : Aperture, optional
+        The physical aperture of the chopper, limiting the profile of the beam at the chopper position
+    """
     name: str
     _frequency: Variable
     _to: Tuple[str, int]
@@ -180,7 +199,8 @@ class Chopper:
 
     @property
     def period(self):
-        return 1 / self.frequency
+        from scipp import abs
+        return abs(1 / self.frequency)
 
     @property
     def phase(self):
@@ -217,15 +237,32 @@ class Chopper:
                     target_window: int | None = None,
                     zero_offset: Variable | None = None,
                     centred: bool = False):
+        """Set the phase of the chopper, given the flight length and target velocity
+
+        Parameters
+        ----------
+        flight_length : Variable
+            The distance the neutrons travel from the source to the chopper
+        target_velocity : Variable
+            The velocity of the neutrons at the chopper
+        target_window : int, optional
+            The window number to target
+        zero_offset : Variable, optional
+            The offset in time of the zero-angle of the chopper
+        centred : bool, optional
+            Whether to center the phase on the window or the window leading edge
+        """
         if zero_offset is None:
             zero_offset = scalar(0., unit='s')
 
         arrival = flight_length / target_velocity + zero_offset
         delay = self.centered_delay(window=target_window) if centred else self.fully_open_delay(window=target_window)
+        # TODO check that this is correct for negative frequency
         self.phase = (arrival % self.period) * tau * self.frequency - delay
 
     def set_delay(self, to: Variable, target_window: int | None = None, centred: bool = False):
         delay = self.centered_delay(window=target_window) if centred else self.partly_open_delay(window=target_window)
+        # TODO check that this is correct for negative frequency
         self.phase = (to.to(unit='s', dtype='float64') % self.period) * tau * self.frequency - delay
 
 
@@ -342,7 +379,7 @@ class DiscChopper(Chopper):
             return DataArray(data=y, coords={'psi': x})
 
         # find the critical angles for each window, always ordered [(open, close), ...]
-        oc = [open_close(window) for window in self.windows]
+        oc = [open_close(self.windows['slot', x]) for x in range(self.windows.sizes['slot'])]
         # combine them all and ensure they're sorted by angle (if there is overlap we have bigger problems)
         xy = sort(concat(oc, d1) if len(oc) > 1 else oc[0], 'psi')
         # transpose to have the switch dimension first, then flatten such that 'psi' gets duplicated
@@ -354,23 +391,28 @@ class DiscChopper(Chopper):
         psi_prob.coords['time'] = psi_prob.coords['psi'] * self.period / tau
         return psi_prob
 
-    def windows_time(self, delay=None, duration=None, sort=False):
+    def windows_time(self, earliest=None, latest=None, sort=False):
         from numpy import roll, abs as np_abs, any as np_any, array as np_array
         from scipp import abs, floor, ceil, arange, concat
         t = self.period
-        if delay is None:
-            delay = scalar(0., unit=t.unit)
-        if duration is None or duration.to(unit=t.unit) < t:
-            duration = t
+        if earliest is None:
+            earliest = scalar(0., unit=t.unit)
+        if latest is None or latest.to(unit=t.unit) < t:
+            latest = t
         time_prob = self.nonzero_time()
         # select the windows where the probability is non-zero:
         windows = time_prob[time_prob.data > scalar(0., unit=time_prob.unit)]
         # since we selected the 'nonzero' times, these are all probability=1 and only the coordinates are needed
         # reshape them first to (N, 2) windows and limits, keep only the _times_ coordinate
         windows = windows.fold('psi', sizes={'window': -1, 'edges': 2}).coords['time']
-        if abs(delay) > 0. * delay or abs(duration.to(unit=t.unit) - t) > 0. * t:
-            local_zero = delay - floor(delay / t) * t  # always rounds *down*, which we want in case delay < 0
-            offsets = arange(start=0, stop=ceil(duration / t), dim='offset') * t
+
+        # Ensure the windows cover the specified time range.
+        if abs(earliest) > 0. * earliest or abs(latest.to(unit=t.unit) - t) > 0. * t:
+            # The first time we want to consider, offset the windows to start at this time
+            local_zero = earliest - floor(earliest / t) * t  # always rounds *down*, which we want in case delay < 0
+            windows -= local_zero
+            # Ensure the windows are repeated enough times to cover the full range
+            offsets = arange(start=0, stop=ceil((latest - earliest) / t).value, dim='offset') * t
             # this must be offsets + windows not windows + offsets for the flatten & fold to work correctly
             windows = (offsets + windows + local_zero).flatten(to='x').fold('x', sizes={'window': -1, 'edges': 2})
 
@@ -390,6 +432,11 @@ class DiscChopper(Chopper):
 
     def tinv_polygons(self, delay=None, duration=None, minimum_velocity=1e-9, maximum_velocity=1e9):
         from numpy import array, vstack, repeat
+        from scipp import Variable
+        if isinstance(minimum_velocity, Variable):
+            minimum_velocity = minimum_velocity.to(unit='m/s').value
+        if isinstance(maximum_velocity, Variable):
+            maximum_velocity = maximum_velocity.to(unit='m/s').value
         v = 1 / array([minimum_velocity, maximum_velocity, maximum_velocity, minimum_velocity])
         t = self.windows_time(delay, duration).to(unit='s').transpose(dims=['window', 'edges']).values
         return [Polygon(vstack((repeat(w, 2), v)).T) for w in t]
@@ -437,10 +484,14 @@ class DiscChopper(Chopper):
             minimum_velocity = scalar(1e-9, unit='m/s')
         if maximum_velocity is None:
             maximum_velocity = scalar(1e9, unit='m/s')
+        if isinstance(minimum_velocity, Variable):
+            minimum_velocity = minimum_velocity.to(unit='m/s').value
+        if isinstance(maximum_velocity, Variable):
+            maximum_velocity = maximum_velocity.to(unit='m/s').value
         v = 1 / array([minimum_velocity, maximum_velocity, maximum_velocity, minimum_velocity])
         regions = []
         for base in bases:
             times = self.windows_time(delay, duration).transpose(['window', 'edges']).values
             windows = [Polygon(vstack((repeat(w, 2), v)).T) for w in times]
-            regions.extend([z for z in [base.intersection(w) for w in windows] if z.area])
+            regions.extend([p for z in [base.intersection(w) for w in windows] for p in z if p.area])
         return regions

@@ -1,3 +1,5 @@
+from scipp.testing.assertions import assert_allclose, assert_identical
+
 def width_height_offset():
     from scipp import scalar
     width = scalar(30, unit='mm', dtype='float64')
@@ -47,9 +49,9 @@ def make_disc_chopper():
 def test_aperture_creation():
     width, height, offset = width_height_offset()
     aperture = make_aperture()
-    assert aperture.width == width
-    assert aperture.height == height
-    assert aperture.offset == offset
+    assert_identical(aperture.width, width)
+    assert_identical(aperture.height, height)
+    assert_identical(aperture.offset, offset)
 
 
 def test_aperture_equality():
@@ -63,10 +65,10 @@ def test_chopper_creation():
     aperture = make_aperture()
     chopper = make_chopper()
     assert chopper.name == name
-    assert chopper.frequency == frequency
-    assert chopper.phase == phase
+    assert_identical(chopper.frequency, frequency)
+    assert_identical(chopper.phase, phase)
     assert chopper.aperture == aperture
-    assert chopper.period == 1 / frequency
+    assert_identical(chopper.period, 1/frequency)
 
 
 def test_chopper_equality():
@@ -82,11 +84,11 @@ def test_disc_chopper_creation():
     radius, angles, windows, discs = radius_angles_windows_discs()
     chop_a = make_disc_chopper()
     assert chop_a.name == name
-    assert chop_a.frequency == frequency
-    assert chop_a.phase == phase
+    assert_identical(chop_a.frequency, frequency)
+    assert_identical(chop_a.phase, phase)
     assert chop_a.aperture == aperture
-    assert chop_a.period == 1 / frequency
-    assert chop_a.radius == radius
+    assert_identical(chop_a.period, 1/frequency)
+    assert_identical(chop_a.radius, radius)
     assert chop_a.discs == discs
     assert allclose(chop_a.windows, windows)
 

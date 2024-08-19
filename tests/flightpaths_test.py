@@ -1,5 +1,8 @@
+from scipp.testing.assertions import assert_allclose, assert_identical
+
+
 def name_velocity_nominal(velocity=None):
-    from scipp import scalar, array
+    from scipp import array
     if velocity is None:
         velocity = array(values=[100, 1e9], unit='m/s', dims=['wavelength'])
     nominal = array(values=[3.14, 3.14], unit='m', dims=['wavelength'])
@@ -16,8 +19,8 @@ def test_flightpath_creation():
     name, velocity, nominal = name_velocity_nominal()
     flightpath = make_flightpath()
     assert flightpath.name == name
-    assert allclose(flightpath.velocity, velocity)
-    assert allclose(flightpath.nominal, nominal)
+    assert_allclose(flightpath.velocity, velocity)
+    assert_allclose(flightpath.nominal, nominal)
 
 
 def test_flightpath_equivalence():

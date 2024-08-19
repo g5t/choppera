@@ -1,3 +1,5 @@
+from scipp.testing.assertions import assert_allclose, assert_identical
+
 from functools import lru_cache
 from choppera.primary import PrimarySpectrometer
 
@@ -24,10 +26,10 @@ def test_source_creation():
     from scipp import array, allclose
     frequency, duration, delay, velocities = source_frequency_duration_delay_velocities()
     source = make_source()
-    assert source.frequency == frequency
-    assert allclose(source.duration, duration * array(values=[1, 1], dims=['wavelength']))
-    assert allclose(source.delay, delay)
-    assert allclose(source.data.coords['velocities'], velocities)
+    assert_allclose(source.frequency, frequency)
+    assert_allclose(source.duration, duration * array(values=[1, 1], dims=['wavelength']))
+    assert_allclose(source.delay, delay)
+    assert_allclose(source.data.coords['velocities'], velocities)
 
 
 def test_source_equivalence():

@@ -1,3 +1,6 @@
+from scipp.testing.assertions import assert_allclose
+
+
 def mock_config():
     mock = """name: MOCK
 # some comment that doesn't get parsed
@@ -43,7 +46,7 @@ def test_config_is_importable():
 
 
 def test_mock_config():
-    from scipp import scalar, array, allclose
+    from scipp import scalar, array
     from choppera.config import parse
     mock = mock_config()
     parsed = parse(mock)
@@ -52,10 +55,10 @@ def test_mock_config():
     assert 'source' in parsed
     source = parsed['source']
     assert source['name'] == 'The moderator'
-    assert allclose(source['frequency'], scalar(50., unit='Hz'))
-    assert allclose(source['duration'], scalar(1e-7, unit='s'))
-    assert allclose(source['velocities'], array(values=[100, 1e9], unit='m/s', dims=['wavelength']))
-    assert allclose(source['emission_delay'], array(values=[1e-7, 0], unit='s', dims=['wavelength']))
+    assert_allclose(source['frequency'], scalar(50., unit='Hz'))
+    assert_allclose(source['duration'], scalar(1e-7, unit='s'))
+    assert_allclose(source['velocities'], array(values=[100, 1e9], unit='m/s', dims=['wavelength']))
+    assert_allclose(source['emission_delay'], array(values=[1e-7, 0], unit='s', dims=['wavelength']))
 
     assert 'primary_spectrometer' in parsed
     spec = parsed['primary_spectrometer']
@@ -67,46 +70,46 @@ def test_mock_config():
 
     p0 = spec['path_segments'][0]
     assert p0['name'] == 'Moderator to Chopper'
-    assert allclose(p0['length'], scalar(3.14, unit='m'))
-    assert allclose(p0['guide']['velocities'], array(values=[100, 1e9], unit='m/s', dims=['wavelength_limit']))
+    assert_allclose(p0['length'], scalar(3.14, unit='m'))
+    assert_allclose(p0['guide']['velocities'], array(values=[100, 1e9], unit='m/s', dims=['wavelength_limit']))
 
     p1 = spec['path_segments'][1]
     assert p1['name'] == 'Chopper to Sample'
-    assert allclose(p1['length'], scalar(4.0, unit='m'))
+    assert_allclose(p1['length'], scalar(4.0, unit='m'))
 
     assert 'choppers' in spec
     assert len(spec['choppers']) == 1
 
     c0 = spec['choppers'][0]
     assert c0['name'] == 'Chopper'
-    assert allclose(c0['position'], scalar(3.14, unit='m'))
-    assert allclose(c0['opening'], scalar(10.0, unit='degrees'))
-    assert allclose(c0['radius'], scalar(350., unit='mm'))
+    assert_allclose(c0['position'], scalar(3.14, unit='m'))
+    assert_allclose(c0['opening'], scalar(10.0, unit='degrees'))
+    assert_allclose(c0['radius'], scalar(350., unit='mm'))
     assert c0['discs'] == 2
     assert c0['frequency']['name'] == 'Main'
-    assert allclose(c0['aperture']['width'], scalar(30., unit='mm'))
-    assert allclose(c0['aperture']['height'], scalar(48., unit='mm'))
-    assert allclose(c0['aperture']['offset'], scalar(302., unit='mm'))
+    assert_allclose(c0['aperture']['width'], scalar(30., unit='mm'))
+    assert_allclose(c0['aperture']['height'], scalar(48., unit='mm'))
+    assert_allclose(c0['aperture']['offset'], scalar(302., unit='mm'))
 
-    assert allclose(spec['sample']['position'], scalar(7.14, unit='m'))
+    assert_allclose(spec['sample']['position'], scalar(7.14, unit='m'))
 
 
 def test_pulsed_source():
-    from scipp import scalar, array, allclose
+    from scipp import scalar, array
     from choppera.config import parse, parse_pulsed_source
     mock = parse(mock_config())['source']
     source = parse_pulsed_source(mock)
-    assert source.frequency == scalar(50.0, unit='Hz')
-    assert source.slowest == scalar(100.0, unit='m/s')
-    assert source.fastest == scalar(1e9, unit='m/s')
+    assert_allclose(source.frequency, scalar(50.0, unit='Hz'))
+    assert_allclose(source.slowest, scalar(100.0, unit='m/s'))
+    assert_allclose(source.fastest, scalar(1e9, unit='m/s'))
     phase = source.early_late()
-    assert allclose(phase.velocity, array(values=[100, 1e9], unit='m/s', dims=['wavelength']))
-    assert allclose(phase.left, array(values=[1e-7, 0], unit='s', dims=['wavelength']))
-    assert allclose(phase.right, array(values=[2e-7, 1e-7], unit='s', dims=['wavelength']))
+    assert_allclose(phase.velocity, array(values=[100, 1e9], unit='m/s', dims=['wavelength']))
+    assert_allclose(phase.left, array(values=[1e-7, 0], unit='s', dims=['wavelength']))
+    assert_allclose(phase.right, array(values=[2e-7, 1e-7], unit='s', dims=['wavelength']))
 
 
 def test_primary_spectrometer():
-    from scipp import scalar, array, allclose
+    from scipp import scalar, array
     from choppera.config import parse, parse_primary_spectrometer
     mock = parse(mock_config())
     spec = parse_primary_spectrometer(mock)
@@ -115,27 +118,27 @@ def test_primary_spectrometer():
     # Verify the source parameters
     source = spec.source
     assert source.frequency == scalar(50.0, unit='Hz'), "The frequency should stay a scalar"
-    assert allclose(source.duration, array(values=[1e-7, 1e-7], dims=['wavelength'], unit='s')), "Duration is promoted"
-    assert source.slowest == scalar(100.0, unit='m/s')
-    assert source.fastest == scalar(1e9, unit='m/s')
-    assert allclose(source.data.coords['velocities'], array(values=[100, 1e9], dims=['wavelength'], unit='m/s'))
-    assert allclose(source.delay, array(values=[1e-7, 0], dims=['wavelength'], unit='s'))
+    assert_allclose(source.duration, array(values=[1e-7, 1e-7], dims=['wavelength'], unit='s')), "Duration is promoted"
+    assert_allclose(source.slowest, scalar(100.0, unit='m/s'))
+    assert_allclose(source.fastest, scalar(1e9, unit='m/s'))
+    assert_allclose(source.data.coords['velocities'], array(values=[100, 1e9], dims=['wavelength'], unit='m/s'))
+    assert_allclose(source.delay, array(values=[1e-7, 0], dims=['wavelength'], unit='s'))
 
     # Verify the guide values
     assert len(spec.pairs) == 1, "Only one chopper, so only one set of guide-chopper pairs"
     guide, chopper = spec.pairs[0]
 
     assert 'Moderator to Chopper' == guide.name
-    assert allclose(guide.nominal, array(values=[3.14, 3.14], unit='m', dims=['wavelength_limit']))
-    assert allclose(guide.velocity, array(values=[100, 1e9], dims=['wavelength_limit'], unit='m/s'))
+    assert_allclose(guide.nominal, array(values=[3.14, 3.14], unit='m', dims=['wavelength_limit']))
+    assert_allclose(guide.velocity, array(values=[100, 1e9], dims=['wavelength_limit'], unit='m/s'))
 
     assert 'Chopper' == chopper.name
-    assert chopper.radius == scalar(350., unit='mm').to(unit='m')
+    assert_allclose(chopper.radius, scalar(350., unit='mm').to(unit='m'))
     assert chopper.discs == 2
-    assert chopper.period == 1 / source.frequency
+    assert_allclose(chopper.period, 1 / source.frequency)
 
     # And the final path length from the chopper to sample exists too
     final = spec.sample
     assert 'Chopper to Sample' == final.name
-    assert allclose(final.nominal, array(values=[4., 4.], unit='m', dims=['wavelength_limit']))
-    assert allclose(final.velocity, array(values=[100, 1e9], dims=['velocity'], unit='m/s'))
+    assert_allclose(final.nominal, array(values=[4., 4.], unit='m', dims=['wavelength_limit']))
+    assert_allclose(final.velocity, array(values=[100, 1e9], dims=['velocity'], unit='m/s'))

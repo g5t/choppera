@@ -117,12 +117,27 @@ def path_length(positions: Variable):
     return sum(sqrt(dot(diff, diff)))
 
 
-def scalar_property(disk: Group, name: str):
+def scalar_property(group: Group, name: str):
+    from scipp import Dataset, DataArray, DataGroup, squeeze
     from numpy import std
-    assert name in disk, f"The '{name}' property is optional in NeXus but required here"
-    value = disk[name][...]
+    assert name in group, f"The '{name}' property is optional in NeXus but required here"
+    entry = group[name]
+    if 'NX_class' in entry.attrs and entry.attrs['NX_class'] == 'NXlog':
+        # An NXlog gets loaded by scippnexus as a DataGroup with entries:
+        #   'value', 'alarm', 'connection_status'
+        # We only care about the 'value' entry, which is itself a DataArray
+        # with coordinates defined by measurement times, etc.
+        # For now, at least, we only want the data which may have an extra 1-entry dimension
+        # depending on which version of the File Writer produced the file
+        value = squeeze(entry[...]['value'].data)
+    else:
+        value = squeeze(entry[...])
+    if isinstance(value, (DataGroup, Dataset, DataArray)):
+        raise RuntimeError(f"Expected a scalar property but {name} is a {type(value)}")
+
     if value.ndim > 0:
-        assert std(value.values) == 0, f"Non-singular '{name}' not supported (std({value}) != 0)"
+        # Ensure the values passed to numpy.std are floating point, not integers
+        assert std(value.to(dtype='float').values) == 0, f"Non-singular '{name}' not supported (std({value}) != 0)"
         return value[0]
     return value
 
@@ -259,7 +274,7 @@ def primary_spectrometer(inst: Group,
         frequency = scalar_property(inst[disk], 'rotation_speed').to(unit='Hz')
         edges = one_dim_property(inst[disk], 'slit_edges')
         assert len(edges) % 2 == 0, "There must be an equal number of slit edges"
-        windows = edges.fold(dim=edges.dim[0], sizes={'slot': -1, 'window': 2}).to(unit='radian')
+        windows = edges.fold(dim=edges.dims[0], sizes={'slot': -1, 'window': 2}).to(unit='radian')
 
         # get the aperture size: guess that is the size of the last guide, or the same as the previous chopper?
         # better might be to check the _next_ guide entrance too

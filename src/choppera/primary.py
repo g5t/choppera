@@ -60,6 +60,10 @@ class PulsedSource:
         return self.data.coords['duration']
 
     @property
+    def velocity(self):
+        return self.data.coords['velocities']
+
+    @property
     def slowest(self):
         from scipp import min
         return min(self.data.coords['velocities'])
@@ -77,9 +81,9 @@ class PulsedSource:
 
     def tinv_polygon(self) -> Polygon:
         from numpy import array
-        vel, early, late = self.early_late()
-        left = [(t, 1 / v) for t, v in zip(early.values, vel.values)]
-        right = [(t, 1 / v) for t, v in zip(late.values, vel.values)]
+        phase = self.early_late()
+        left = [(t, 1 / v) for t, v in zip(phase.left.values, phase.velocity.values)]
+        right = [(t, 1 / v) for t, v in zip(phase.right.values, phase.velocity.values)]
         return Polygon(array(list(reversed(left)) + right))
 
     def arrival_time(self, target: float, centred=False) -> float:
@@ -170,7 +174,7 @@ class PrimarySpectrometer:
         remaining = regions[0]
         layers = [remaining]
         for idx in range(1, len(regions)):
-            remaining = [z for w in regions[idx] for z in [r.intersection(w) for r in remaining] if z.area]
+            remaining = [pg for w in regions[idx] for pgs in [r.intersection(w) for r in remaining] for pg in pgs if pg.area]
             layers.append(remaining)
         return remaining, layers
 
@@ -208,6 +212,7 @@ class PrimarySpectrometer:
 
     def project_on_sample_alternate(self):
         from scipp import scalar, min, max
+        from numpy import min as np_min
         from .utils import skew_smear
         regions = [self.source.tinv_polygon()]
         slowest, fastest = self.source.slowest, self.source.fastest
@@ -223,7 +228,7 @@ class PrimarySpectrometer:
             regions = chopper.tinv_overlap(moved, delay, duration, slowest, fastest)
         short, long = self.sample.tinv_transforms(pre=scalar(0., unit='m'), post=scalar(0., unit='m'))
         on_sample = [skew_smear(x, short, long) for x in regions]
-        return list(sorted(on_sample, key=lambda x: x.min()))
+        return list(sorted(on_sample, key=lambda x: np_min(x.vertices[:, 0])))
 
     def forward_time_distance_diagram(self):
         from polystar import Polygon
@@ -271,7 +276,7 @@ class PrimarySpectrometer:
         x, y = [], []
         for guide, chopper in self.pairs:
             zero += guide.td_length()
-            windows = chopper.windows_time(delay=minimum_time, duration=maximum_time - minimum_time, sort=True)
+            windows = chopper.windows_time(earliest=minimum_time, latest=maximum_time, sort=True)
             last = minimum_time
             for times in windows.transpose(['slot', 'time']):
                 t_open, t_close = times['time', 0], times['time', 1]
