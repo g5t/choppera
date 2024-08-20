@@ -185,7 +185,7 @@ class PrimarySpectrometer:
         short, long = scalar(0., unit='m'), scalar(0., unit='m')
 
         def forward_project(shrt, lng, on):
-            return [skew_smear(x, shrt.value, lng.value) for x in on]
+            return [skew_smear(x, shrt, lng) for x in on]
 
         for guide, chopper in self.pairs:
             short, long = guide.tinv_transforms(pre=short, post=long)

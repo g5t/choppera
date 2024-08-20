@@ -24,8 +24,12 @@ def skew_smear(poly: Polygon, factor0, factor1) -> Polygon:
     t1 = [[1., factor1], [0., 1.]]
     # v0 = poly.transform(t0).vertices
     # v1 = poly.transform(t1).vertices
-    v0 = einsum('ij,kj->ki', t0, poly.vertices)
-    v1 = einsum('ij,kj->ki', t1, poly.vertices)
+
+    # the polygon may have extraneous vertices, or internal wires that we are ignoring
+    # so we need to extract only the border vertices before skewing
+    v0 = einsum('ij,kj->ki', t0, poly.vertices[poly.border, :])
+    v1 = einsum('ij,kj->ki', t1, poly.vertices[poly.border, :])
+
 
     # Concatenate all skewed vertices, then find the convex hull polygon containing them all
     return Polygon(vstack((v0, v1)))

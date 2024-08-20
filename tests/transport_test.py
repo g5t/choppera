@@ -68,6 +68,7 @@ def make_aperture():
     offset = scalar(1e6 - 1, unit='m', dtype='float64')
     return Aperture(width, height, offset)
 
+
 def make_disc_chopper(which: str):
     from choppera.chopper import DiscChopper
     frequency, phase_to, phase, radius, windows, discs = chopper_params()
@@ -153,7 +154,7 @@ def test_primary_project_phase_space_on_source():
         (chopper_t_max - path_length * inverse_v_max, inverse_v_max)
     ])
     assert allclose(regions[1][0].area, expected_1.area)
-    assert allclose(regions[1][0].vertices, expected_1.vertices)
+    assert allclose(regions[1][0].vertices[regions[1][0].border], expected_1.vertices[expected_1.border])
 
 
 def test_primary_transmitted_phase_space_on_source():
@@ -173,39 +174,26 @@ def test_primary_transmitted_phase_space_on_source():
     assert len(intersection) == 1
     assert allclose(intersection[0].area, space.area)
 
-#
-# def test_primary_transmitted_phase_space_on_sample():
-#     from numpy import allclose
-#     primary = make_primary()
-#     expected = Polygon([(15, 7), (9, 4), (8, 3), (14, 6)], [0, 1, 2, 3])
-#     space, individuals = primary.project_transmitted_on_sample()
-#     assert len(space) == 1
-#     space = space[0]
-#     print(space.vertices)
-#     assert allclose(expected.area, space.area)
-#     # The opening/closing time of the chopper makes small deviations from the expected case
-#     # The area is appproximately right, but there are more vertices as a result of the difference.
-#     # assert allclose(expected.vertices[expected.border], space.vertices[space.border])
-#
-#     # TODO find a better test to compare the two polygons
-#     intersection = space.intersection(expected)
-#     assert len(intersection) == 1
-#     assert allclose(intersection[0].area, space.area)
 
-# def test_primary_transmitted_phase_space_on_sample_alt():
-#     from numpy import allclose
-#     primary = make_primary()
-#     expected = Polygon([(15, 7), (9, 4), (8, 3), (14, 6)], [0, 1, 2, 3])
-#     space = primary.project_on_sample_alternate()
-#     assert len(space) == 1
-#     space = space[0]
-#     print(space.vertices)
-#     assert allclose(expected.area, space.area)
-#     # The opening/closing time of the chopper makes small deviations from the expected case
-#     # The area is appproximately right, but there are more vertices as a result of the difference.
-#     # assert allclose(expected.vertices[expected.border], space.vertices[space.border])
-#
-#     # TODO find a better test to compare the two polygons
-#     intersection = space.intersection(expected)
-#     assert len(intersection) == 1
-#     assert allclose(intersection[0].area, space.area)
+def test_primary_transmitted_phase_space_on_sample():
+    from numpy import allclose
+    primary = make_primary()
+    expected = Polygon([(15, 7), (9, 4), (8, 3), (14, 6)], [0, 1, 2, 3])
+    space, individuals = primary.project_transmitted_on_sample()
+    assert len(space) == 1
+    space = space[0]
+    assert allclose(expected.area, space.area)
+    # The opening/closing time of the chopper makes small deviations from the expected case
+    assert allclose(expected.vertices[expected.border], space.vertices[space.border])
+
+
+def test_primary_transmitted_phase_space_on_sample_alt():
+    from numpy import allclose
+    primary = make_primary()
+    expected = Polygon([(15, 7), (9, 4), (8, 3), (14, 6)], [0, 1, 2, 3])
+    space = primary.project_on_sample_alternate()
+    assert len(space) == 1
+    space = space[0]
+    assert allclose(expected.area, space.area)
+    # The opening/closing time of the chopper makes small deviations from the expected case
+    assert allclose(expected.vertices[expected.border], space.vertices[space.border])
