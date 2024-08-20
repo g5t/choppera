@@ -29,7 +29,7 @@ def entry_exit_size(group: Group, geom: str | None = None):
         v_y = dot(v, vector(value=[0, 1., 0], unit='1'))
         return max(v_x) - min(v_x), max(v_y) - min(v_y)
 
-    vertices = group[f'{geom}/vertices'][...]
+    vertices = group[geom]['vertices'][...]
     v_z = dot(vertices, vector(value=[0, 0, 1.], unit='1'))
     z_min, z_max = min(v_z), max(v_z)
     return width_height(vertices[v_z == z_min]), width_height(vertices[v_z == z_max])
@@ -40,11 +40,11 @@ def nexus_off_to_polyhedron(group: Group, geom: str | None = None):
     from polystar import Polyhedron
     if geom is None:
         geom = guess_group_geometry(group)
-    face_starts = group[f'{geom}/faces'][...].values  # immediately use the numpy array since we're going to index
-    winding_order = group[f'{geom}/winding_order'][...].values
+    face_starts = group[geom]['faces'][...].values  # immediately use the numpy array since we're going to index
+    winding_order = group[geom]['winding_order'][...].values
     face_ends = hstack((face_starts[1:], len(winding_order)))
     faces = [winding_order[start:stop] for start, stop in zip(face_starts, face_ends)]
-    vertices = group[f'{geom}/vertices'][...].values
+    vertices = group[geom]['vertices'][...].values
 
     poly = Polyhedron(vertices, faces)
     return poly
@@ -63,7 +63,7 @@ def entry_exit_size_curved(group: Group):
     assert 'NX_class' in group.attrs and group.attrs['NX_class'] == 'NXguide'
     geom = guess_group_geometry(group)
     poly = nexus_off_to_polyhedron(group, geom)
-    v = group[f'{geom}/vertices'][...]
+    v = group[geom]['vertices'][...]
     y = vector(value=[0, 1., 0], unit='1')
     z = vector(value=[0, 0, 1.], unit='1')
 
