@@ -212,7 +212,7 @@ class Chopper:
 
     @frequency.setter
     def frequency(self, f: Variable):
-        assert f >= 0. * f
+        assert f != 0. * f, "Chopper frequency must be non-zero"
         self._frequency = f.to(unit='Hz', dtype='float64')
 
     @phase.setter
