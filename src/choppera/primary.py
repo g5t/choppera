@@ -2,9 +2,8 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Tuple
-from numpy import ndarray, array
 
 from scipp import DataArray, Variable
 from polystar import Polygon
@@ -20,8 +19,8 @@ class PulsedSource:
 
     def __eq__(self, other):
         from scipp import allclose
-        dataclose = all(allclose(v, other.data.coords[k]) for k, v in self.data.coords.items())
-        return dataclose and allclose(self.frequency, other.frequency)
+        data_close = all(allclose(v, other.data.coords[k]) for k, v in self.data.coords.items())
+        return data_close and allclose(self.frequency, other.frequency)
 
     def __hash__(self):
         coords = [str(v.values) for v in self.data.coords.values()]
@@ -47,7 +46,11 @@ class PulsedSource:
         self.frequency = frequency
         # if the delay, duration and velocities do not have consistent shapes, the following will raise an error
         index = Variable(values=argsort(velocities.values), unit='1', dims=velocities.dims)
-        data = DataArray(data=index, coords={'delay': delay, 'duration': duration, 'velocities': velocities})
+        data = DataArray(data=index, coords={
+            'delay': delay.to(unit='s'),
+            'duration': duration.to(unit='s'),
+            'velocities': velocities.to(unit='m/s')
+        })
         # sort the data by the velocities
         self.data = sort(data, 'velocities')
 
@@ -278,11 +281,10 @@ class PrimarySpectrometer:
             zero += guide.td_length()
             windows = chopper.windows_time(earliest=minimum_time, latest=maximum_time, sort=True)
             last = minimum_time
-            for times in windows.transpose(['slot', 'time']):
-                t_open, t_close = times['time', 0], times['time', 1]
-                if t_open < last:
-                    pass
-                else:
+            for edge in range(windows.sizes['edges']):
+                times =  windows['edges', edge]
+                t_open, t_close = times['window', 0], times['window', 1]
+                if last >= t_open:
                     x.extend([last.value, t_open.value, t_open.value, t_close.value])
                     y.extend([zero.value, zero.value, nan, nan])
                 last = t_close
@@ -316,3 +318,4 @@ class PrimarySpectrometer:
                 x.extend([zero.value, zero.value, zero.value, zero.value])
                 y.extend([nan, 0, length.value, nan])
         return x, y
+

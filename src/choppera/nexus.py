@@ -353,7 +353,8 @@ def primary_shortest_time(primary: PrimarySpectrometer):
     """
     from numpy import hstack
     from scipp import min
-    t_vs_inverse_v_polys_at_sample, s_layers = primary.project_transmitted_on_sample()
+    # t_vs_inverse_v_polys_at_sample, s_layers = primary.project_transmitted_on_sample()
+    t_vs_inverse_v_polys_at_sample = primary.project_on_sample_alternate()
     # extract all times from the polygons
     times = Variable(values=hstack([p.vertices[:, 0] for p in t_vs_inverse_v_polys_at_sample]), dims=['time'], unit='s')
     return min(times)
@@ -379,7 +380,11 @@ def unwrap(times: Variable, frequency: Variable, shortest_time: Variable):
         The unwrapped times at the sample position.
     """
     from scipp import floor_divide, min, max
-    unit = times.unit
+    if times.bins is None:
+        unit = times.unit
+    else:
+        unit = times.bins.unit
+
     period = (1 / frequency).to(unit=unit, copy=False)
     shortest_time = shortest_time.to(unit=unit, copy=False)
     reference_time = floor_divide(shortest_time, period) * period

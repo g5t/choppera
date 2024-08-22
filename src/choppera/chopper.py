@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Tuple, List
 from numpy import ndarray, pi as npi
 from scipp import Variable, DataArray, scalar
@@ -365,17 +364,8 @@ class DiscChopper(Chopper):
 
         def open_close(window):
             # Reverse the window edges before adding psi and the phase
-            x = (Variable(values=-(window.values[::-1]), dims=[d1], unit=window.unit) + psi + self.phase) % tau
-            if x[d1, 0] < zero < x[d1, 1]:
-                # window crosses zero -- so break into two windows
-                x = concat((zero, x[d1, 1], x[d1, 0] + tau, tau), d1)
-                y = concat((prob, prob), d1)
-            elif x[d1, 0] < tau < x[d1, 1]:
-                # window crosses 2pi -- so break into two windows
-                x = concat((zero, x[d1, 1] - tau, x[d1, 0], tau), d1)
-                y = concat((prob, prob), d1)
-            else:
-                y = prob
+            x = Variable(values=-(window.values[::-1]), dims=[d1], unit=window.unit) + psi + self.phase
+            y = prob
             return DataArray(data=y, coords={'psi': x})
 
         # find the critical angles for each window, always ordered [(open, close), ...]
@@ -393,7 +383,7 @@ class DiscChopper(Chopper):
 
     def windows_time(self, earliest=None, latest=None, sort=False):
         from numpy import roll, abs as np_abs, any as np_any, array as np_array
-        from scipp import abs, floor, ceil, arange, concat
+        from scipp import abs, floor, ceil, arange, concat, min, max
         t = self.period
         if earliest is None:
             earliest = scalar(0., unit=t.unit)
@@ -406,15 +396,21 @@ class DiscChopper(Chopper):
         # reshape them first to (N, 2) windows and limits, keep only the _times_ coordinate
         windows = windows.fold('psi', sizes={'window': -1, 'edges': 2}).coords['time']
 
-        # Ensure the windows cover the specified time range.
-        if abs(earliest) > 0. * earliest or abs(latest.to(unit=t.unit) - t) > 0. * t:
-            # The first time we want to consider, offset the windows to start at this time
-            local_zero = earliest - floor(earliest / t) * t  # always rounds *down*, which we want in case delay < 0
-            windows -= local_zero
-            # Ensure the windows are repeated enough times to cover the full range
-            offsets = arange(start=0, stop=ceil((latest - earliest) / t).value, dim='offset') * t
-            # this must be offsets + windows not windows + offsets for the flatten & fold to work correctly
-            windows = (offsets + windows + local_zero).flatten(to='x').fold('x', sizes={'window': -1, 'edges': 2})
+        if latest < earliest:
+            earliest, latest = latest, earliest
+
+        n_before, n_after = 0, 0
+        min_win, max_win = min(windows), max(windows)
+        # Extend lower time as long as doing so will not add only windows that ends before the earliest time
+        while min_win - n_before * t > earliest < max_win - (n_before + 1) * t:
+            n_before += 1
+        # Extend higher time as long as doing so will not add only windows that starts after the latest time
+        while max_win + n_after * t < latest > min_win + (n_after + 1) * t:
+            n_after += 1
+        if n_before or n_after:
+            offsets = arange(start=-n_before, stop=n_after + 1, dim='offset') * t
+            windows = (offsets + windows).flatten(to='x').fold('x', sizes={'window': -1, 'edges': 2})
+
 
         # If the phase/windows are such that 2 pi is *in* a window, there are likely successive windows which
         # end and start at the same time. Combine them at this point:
@@ -489,9 +485,11 @@ class DiscChopper(Chopper):
         if isinstance(maximum_velocity, Variable):
             maximum_velocity = maximum_velocity.to(unit='m/s').value
         v = 1 / array([minimum_velocity, maximum_velocity, maximum_velocity, minimum_velocity])
+        times = self.windows_time(delay, duration).transpose(['window', 'edges'])
+        print(times)
+        print(times.values)
+        windows = [Polygon(vstack((repeat(w, 2), v)).T) for w in times.values]
         regions = []
         for base in bases:
-            times = self.windows_time(delay, duration).transpose(['window', 'edges']).values
-            windows = [Polygon(vstack((repeat(w, 2), v)).T) for w in times]
             regions.extend([p for z in [base.intersection(w) for w in windows] for p in z if p.area])
         return regions

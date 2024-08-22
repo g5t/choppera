@@ -51,7 +51,7 @@ def make_flightpath(which: str, velocity=None):
 def chopper_params():
     from scipp import scalar, Variable
     from numpy import pi, array
-    frequency = scalar(1/12, unit='Hz', dtype='float64')
+    frequency = scalar(-1/12, unit='Hz', dtype='float64')
     phase_to = ('Primary', 1)
     phase = scalar(6.5/12 * 2 * pi, unit='radian', dtype='float64')
     radius = scalar(1e6, unit='m', dtype='float64')
