@@ -19,11 +19,12 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
-  "polystar>=0.4.2",
+  "polystar>=0.4.4",
   "numpy~=2.0",
   "scipp~=24.8",
   "scippnexus~=24.8",
@@ -87,4 +88,5 @@ python = [
   "3.10", 
   "3.11", 
   "3.12",
+  "3.13",
 ]

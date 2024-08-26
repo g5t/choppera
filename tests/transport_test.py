@@ -158,7 +158,7 @@ def test_primary_project_phase_space_on_source():
 
 
 def test_primary_transmitted_phase_space_on_source():
-    from numpy import allclose
+    from numpy import allclose, argmin, sum, abs, sqrt
     primary = make_primary()
     expected = Polygon([(1, 7), (1, 4), (2, 3), (2, 6)], [0, 1, 2, 3])
     space, individuals = primary.project_transmitted_on_source()
@@ -169,10 +169,19 @@ def test_primary_transmitted_phase_space_on_source():
     # The area is appproximately right, but there are more vertices as a result of the difference.
     # assert allclose(expected.vertices[expected.border], space.vertices[space.border])
 
-    # TODO find a better test to compare the two polygons
-    intersection = space.intersection(expected)
-    assert len(intersection) == 1
-    assert allclose(intersection[0].area, space.area)
+    # TODO find a working test to compare the two polygons
+    #   This doesn't work because the vertices of space include small deviations from those in expected.
+    #   _AND_ polystar says it is not convex, _AND_ the intersection is errantly empty.
+    #   Weirdly two identical Polygons do not give an intersection.
+    # intersection = space.intersection(expected)
+    # assert len(intersection) == 1
+    # assert allclose(intersection[0].area, space.area)
+
+    closest = [argmin(sum(abs(expected.vertices - v), axis=1)) for v in space.vertices]
+    difference = expected.vertices[closest] - space.vertices
+    distance = sqrt(sum(difference * difference, axis=1))
+    for x in distance:
+        assert x < 1e-6
 
 
 def test_primary_transmitted_phase_space_on_sample():

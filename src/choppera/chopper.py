@@ -383,7 +383,7 @@ class DiscChopper(Chopper):
 
     def windows_time(self, earliest=None, latest=None, sort=False):
         from numpy import roll, abs as np_abs, any as np_any, array as np_array
-        from scipp import abs, floor, ceil, arange, concat, min, max
+        from scipp import arange, concat, min, max
         t = self.period
         if earliest is None:
             earliest = scalar(0., unit=t.unit)
@@ -400,7 +400,7 @@ class DiscChopper(Chopper):
             earliest, latest = latest, earliest
 
         n_before, n_after = 0, 0
-        min_win, max_win = min(windows), max(windows)
+        min_win, max_win = [min(windows), max(windows)]
         # Extend lower time as long as doing so will not add only windows that ends before the earliest time
         while min_win - n_before * t > earliest < max_win - (n_before + 1) * t:
             n_before += 1

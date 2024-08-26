@@ -17,8 +17,8 @@ The choppers have properties
 |distance|opening time|closing time|angle   |
 |--------|------------|------------|--------|
 | 10.0 m | -20 ms     | 30 ms      | 180    |
-| 10.0 m | 20 ms      | 70 ms      | 100    |
-| 15.0 m | -10 ms     | 60 ms      | 7 * 36 |
+| 10.0 m |  20 ms     | 70 ms      | 180    |
+| 15.0 m |  20 ms     | 50 ms      | 3 * 36 |
 | 20.0 m | -50 ms     | 40 ms      | 9 * 36 |
 
 The sample is located at the 30 m mark.
@@ -82,7 +82,7 @@ def make_pairs(velocity=None):
     return [
         (make_flightpath('Source to Chopper 1', 10., velocity), make_disc_chopper('Chopper 1', -20, 30, 180)),
         (make_flightpath('Chopper 1 to Chopper 2', 0, velocity), make_disc_chopper('Chopper 2', 20, 70, 180)),
-        (make_flightpath('Chopper 2 to Chopper 3', 15.00-10, velocity), make_disc_chopper('Chopper 3', -10, 60, 7 * 36)),
+        (make_flightpath('Chopper 2 to Chopper 3', 15.00-10, velocity), make_disc_chopper('Chopper 3', 20, 50, 3 * 36)),
         (make_flightpath('Chopper 3 to Chopper 4', 20.00-15, velocity), make_disc_chopper('Chopper 4', -50, 40, 9 * 36))
     ]
 
@@ -115,8 +115,8 @@ def test_primary_source_phase_space_creation():
 def test_primary_chopper_phase_space_selection():
     from numpy import allclose
     primary = make_primary()
-    t0_ms = [[5, 105], [45], [25, 125], [-5, 95]]
-    tw_ms = [[50, 50], [50], [70, 70], [90, 90]]
+    t0_ms = [[5, 105], [45], [35], [-5, 95]]
+    tw_ms = [[50, 50], [50], [30], [90, 90]]
     inverse_v_min = 0.001  # second/m
     inverse_v_max = 0.013  # second/m
     for t0, tw, pair in zip(t0_ms, tw_ms, primary.pairs):
@@ -137,8 +137,8 @@ def test_primary_project_phase_space_on_source():
     primary = make_primary()
     regions = primary.project_all_on_source()  # returned regions are [[source], [ch0], [ch1], [ch2], [ch3]]
 
-    t0_ms = [[5, 105], [45, 145], [25, 125, 225], [-5, 95, 195, 295]]
-    tw_ms = [50, 50, 70, 90]
+    t0_ms = [[5, 105], [45, 145], [35, 135], [-5, 95, 195, 295]]
+    tw_ms = [50, 50, 30, 90]
     dists = [10, 10, 15, 20]
 
     assert len(regions) == len(t0_ms) + 1
@@ -170,23 +170,26 @@ def test_primary_project_phase_space_on_source():
             assert allclose(poly.area, expected.area)
             assert allclose(poly.vertices[poly.border], expected.vertices[expected.border])
 
-#
-# def test_primary_transmitted_phase_space_on_source():
-#     from numpy import allclose
-#     primary = make_primary()
-#     expected = Polygon([(1, 7), (1, 4), (2, 3), (2, 6)], [0, 1, 2, 3])
-#     space, individuals = primary.project_transmitted_on_source()
-#     assert len(space) == 1
-#     space = space[0]
-#     assert allclose(expected.area, space.area)
-#     # The opening/closing time of the chopper makes small deviations from the expected case
-#     # The area is appproximately right, but there are more vertices as a result of the difference.
-#     # assert allclose(expected.vertices[expected.border], space.vertices[space.border])
-#
-#     # TODO find a better test to compare the two polygons
-#     intersection = space.intersection(expected)
-#     assert len(intersection) == 1
-#     assert allclose(intersection[0].area, space.area)
+
+def test_primary_transmitted_phase_space_on_source():
+    from numpy import allclose
+    primary = make_primary()
+    space, individuals = primary.project_transmitted_on_source()
+    lower = Polygon([(0.00, 0.0020), (0.01, 0.0010), (0.01, 0.0015)], [0, 1, 2])
+    upper = Polygon([(0.00, 0.0030), (0.00, 0.0025), (0.01, 0.0020)], [0, 1, 2])
+    assert len(space) == 2
+    assert allclose(lower.area, space[0].area)
+    assert allclose(upper.area, space[1].area)
+    # The opening/closing time of the chopper makes small deviations from the expected case
+    # The area is approximately right, but there are more vertices as a result of the difference.
+
+    for expected, poly in zip([lower, upper], space):
+        assert allclose(expected.area, poly.area)
+        intersection = poly.intersection(expected)
+        assert len(intersection) == 1
+        assert allclose(intersection[0].area, expected.area)
+        assert intersection[0] == expected
+
 #
 #
 # def test_primary_transmitted_phase_space_on_sample():
