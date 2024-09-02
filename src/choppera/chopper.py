@@ -486,8 +486,6 @@ class DiscChopper(Chopper):
             maximum_velocity = maximum_velocity.to(unit='m/s').value
         v = 1 / array([minimum_velocity, maximum_velocity, maximum_velocity, minimum_velocity])
         times = self.windows_time(delay, duration).transpose(['window', 'edges'])
-        print(times)
-        print(times.values)
         windows = [Polygon(vstack((repeat(w, 2), v)).T) for w in times.values]
         regions = []
         for base in bases:

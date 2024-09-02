@@ -125,6 +125,15 @@ class PrimarySpectrometer:
         self.source = source
         self.sample = sample
 
+    def sample_distance(self):
+        from scipp import scalar
+        least, most = scalar(0., unit='m'), scalar(0., unit='m')
+        for path, _ in self.pairs:
+            least, most = path.tinv_transforms(pre=least, post=most)
+        if least != most:
+            print('There is no single sample distance for this spectrometer')
+        return least
+
     def setup_phases(self, target_velocity, centred=False):
         from scipp import scalar
         cumulative = scalar(0., unit='m')
@@ -157,29 +166,41 @@ class PrimarySpectrometer:
         vt = self.sample.propagate(vt)
         return vt
 
-    def project_all_on_source(self):
-        from scipp import scalar, min, max
+    def project_all_on(self, distance):
+        from scipp import scalar, min, max, Variable
         from .utils import skew_smear
-        regions = [[self.source.tinv_polygon()]]
+        if not isinstance(distance, Variable):
+            distance = scalar(distance, unit='m')
+
+        at_source = self.source.tinv_polygon()
+        regions = [[skew_smear(at_source, distance, distance)]]
+
         slowest, fastest = self.source.slowest, self.source.fastest
-        short, long = scalar(0., unit='m'), scalar(0., unit='m')
+        least, most = scalar(0., unit='m'), scalar(0., unit='m')
         for guide, chopper in self.pairs:
-            short, long = guide.tinv_transforms(pre=short, post=long)
-            delay = min(short / fastest + self.source.delay)
-            duration = max(long / slowest + self.source.delay + self.source.duration)
+            least, most = guide.tinv_transforms(pre=least, post=most)
+            delay = min(least / fastest + self.source.delay)
+            duration = max(most / slowest + self.source.delay + self.source.duration)
             at_chopper = chopper.tinv_polygons(delay, duration, slowest, fastest)
-            at_source = [skew_smear(window, -long, -short) for window in at_chopper]
-            regions.append(at_source)
+            # project forward up to distance and backwards beyond
+            at_distance = [skew_smear(window, distance - most, distance - least) for window in at_chopper]
+            regions.append(at_distance)
         return regions
 
-    def project_transmitted_on_source(self):
-        regions = self.project_all_on_source()
+    def project_transmitted_on(self, distance):
+        regions = self.project_all_on(distance)
         remaining = regions[0]
         layers = [remaining]
         for idx in range(1, len(regions)):
             remaining = [pg for w in regions[idx] for pgs in [r.intersection(w) for r in remaining] for pg in pgs if pg.area]
             layers.append(remaining)
         return remaining, layers
+
+    def project_all_on_source(self):
+        return self.project_all_on(0.)
+
+    def project_transmitted_on_source(self):
+        return self.project_transmitted_on(0.)
 
     def project_transmitted_on_sample(self):
         from scipp import scalar
@@ -198,10 +219,14 @@ class PrimarySpectrometer:
         s_layers = [forward_project(short, long, layer) for layer in layers]
         return at_sample, s_layers
 
-    def project_on_source_alternate(self):
+    def project_on_alternate(self, distance):
         from scipp import scalar, min, max
         from .utils import skew_smear
-        regions = [self.source.tinv_polygon()]
+        if not isinstance(distance, Variable):
+            distance = scalar(distance, unit='m')
+        at_source = self.source.tinv_polygon()
+        regions = [skew_smear(at_source, distance, distance)]
+
         slowest, fastest = self.source.slowest, self.source.fastest
         short, long = scalar(0., unit='m'), scalar(0., unit='m')
         for guide, chopper in self.pairs:
@@ -209,9 +234,20 @@ class PrimarySpectrometer:
             delay = min(short / fastest + self.source.delay)
             duration = max(long / slowest + self.source.delay + self.source.duration)
             at_chopper = chopper.tinv_polygons(delay, duration, slowest, fastest)
-            at_source = [skew_smear(w, -long, -short) for w in at_chopper]
-            regions = [z for w in at_source for z in [r.intersection(w) for r in regions] if z.area]
+            at_distance = [skew_smear(w, distance - long, distance - short) for w in at_chopper]
+            # | variable              | type          |
+            # |-----------------------|---------------|
+            # | at_distance           | list[Polygon] |
+            # | regions               | list[Polygon] |
+            # | d                     | Polygon       |
+            # | r                     | Polygon       |
+            # | z = r.intersection(d) | list[Polygon] |
+            # | x                     | Polygon       |
+            regions = [x for d in at_distance for z in [r.intersection(d) for r in regions] for x in z if x.area]
         return regions
+
+    def project_on_source_alternate(self):
+        return self.project_on_alternate(0.)
 
     def project_on_sample_alternate(self):
         from scipp import scalar, min, max

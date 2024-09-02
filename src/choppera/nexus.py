@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from scipp import Variable
 from scippnexus import Group
 from .primary import PrimarySpectrometer
@@ -328,15 +330,15 @@ def primary_periods(*args, **kwargs):
     return n, delta
 
 
-def primary_shortest_time(primary: PrimarySpectrometer):
-    """Find the minimum arrival time at the sample position for a given spectrometer configuration
+def primary_time_range_at(primary: PrimarySpectrometer, distance: Variable):
+    """Find the minimum and maximum arrival time at the flight path distance for a given spectrometer configuration
 
     Note
     ----
     The internal steps taken by this function are:
     1. Find the allowed phase space at the source in (time, inverse velocity) space
-    2. Project the allowed phase space onto the sample
-    3. Extract the minimum time from the projected polygon(s)
+    2. Project the allowed phase space onto the specified distance
+    3. Extract the times from the projected polygon(s) and return their minimum and maximum as a 2-element Variable
 
     The first two steps may be slow and the result is small, so this function may benefit greatly from caching.
     Consider using the `@cache` decorator from `functools` to cache the result of this function.
@@ -345,6 +347,8 @@ def primary_shortest_time(primary: PrimarySpectrometer):
     ----------
     primary: choppera.PrimarySpectrometer
         A fully constructed primary spectrometer with the method `project_transmitted_on_sample`
+    distance: scalar scipp.Variable
+        The path length from the source to the position to determine the time-range
 
     Returns
     -------
@@ -352,27 +356,44 @@ def primary_shortest_time(primary: PrimarySpectrometer):
         The minimum neutron arrival time at the sample position for the given spectrometer configuration
     """
     from numpy import hstack
-    from scipp import min
-    # t_vs_inverse_v_polys_at_sample, s_layers = primary.project_transmitted_on_sample()
-    t_vs_inverse_v_polys_at_sample = primary.project_on_sample_alternate()
+    from scipp import min, max, concat
+    t_vs_slowness_polygons = primary.project_on_alternate(distance)
     # extract all times from the polygons
-    times = Variable(values=hstack([p.vertices[:, 0] for p in t_vs_inverse_v_polys_at_sample]), dims=['time'], unit='s')
-    return min(times)
+    times = Variable(values=hstack([p.vertices[:, 0] for p in t_vs_slowness_polygons]), dims=['time'], unit='s')
+    return concat((min(times), max(times)), dim='time')
 
 
-def unwrap(times: Variable, frequency: Variable, shortest_time: Variable):
+def primary_pivot_time_at(primary: PrimarySpectrometer, distance: Variable):
+    """Find a time at or before the earliest arrival time for the spectrometer configuration at a given path length
+
+    The returned time should be between incident pulses, when no neutrons can reach the specified distance
+    """
+    from scipp import min, max
+    min_max = primary_time_range_at(primary, distance)
+    period = (1 / primary.source.frequency).to(unit=min_max.unit)
+    early, late = min(min_max), max(min_max)
+    if late - early > period:
+        return early
+    return early - (period - (late - early)) / 2
+
+
+def primary_pivot_time(primary: PrimarySpectrometer):
+    return primary_pivot_time_at(primary, primary.sample_distance())
+
+
+def unwrap(times: Variable, frequency: Variable, pivot: Variable):
     """Unwrap times at the sample position to be contiguous and within a single period of the source frequency
 
     Parameters
     ----------
     times: scipp.Variable
         The in-frame times at the sample position. The values should be in the range (0, 1/frequency) and the
-        dimension should be 'time'. The shortest_time determines where in the range the times start, and is used
+        dimension should be 'time'. The pivot determines where in the range the times start, and is used
         to ensure the unwrapped times are contiguous.
     frequency: scipp.Variable
         The repetition frequency of the PulsedSource
-    shortest_time: scipp.Variable
-        The minimum arrival time at the sample position for a given spectrometer configuration
+    pivot: scipp.Variable
+        An arrival time at the sample position for a given spectrometer configuration before the minimum time
 
     Returns
     -------
@@ -386,9 +407,20 @@ def unwrap(times: Variable, frequency: Variable, shortest_time: Variable):
         unit = times.bins.unit
 
     period = (1 / frequency).to(unit=unit, copy=False)
-    shortest_time = shortest_time.to(unit=unit, copy=False)
-    reference_time = floor_divide(shortest_time, period) * period
-    contiguous = (times + reference_time - shortest_time) % period
+    pivot = pivot.to(unit=unit, copy=False)
+    reference_time = floor_divide(pivot, period) * period
+    contiguous = (times + reference_time - pivot) % period
     assert min(contiguous).value >= 0, "Negative time in unwrapped times"
     assert max(contiguous) <= period, "Time exceeds period in unwrapped times"
-    return contiguous + shortest_time
+    return contiguous + pivot
+
+
+def primary_focus_time(primary: PrimarySpectrometer, focus_distance: Variable):
+    from scipp import scalar
+    transmitted, layers = primary.project_transmitted_on(focus_distance)
+    if len(transmitted) == 0:
+        raise RuntimeError("The transmitted phase space is null at the focus distance")
+    if len(transmitted) > 1:
+        raise RuntimeError("The transmitted phase space has multiple regions at the focus distance, this method is not appropriate")
+    com_sec = transmitted[0].centroid[0][0]
+    return scalar(com_sec, unit='sec')
