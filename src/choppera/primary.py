@@ -130,6 +130,8 @@ class PrimarySpectrometer:
         least, most = scalar(0., unit='m'), scalar(0., unit='m')
         for path, _ in self.pairs:
             least, most = path.tinv_transforms(pre=least, post=most)
+        # after the last chopper, add the chopper-to-sample distance too
+        least, most = self.sample.tinv_transforms(pre=least, post=most)
         if least != most:
             print('There is no single sample distance for this spectrometer')
         return least
