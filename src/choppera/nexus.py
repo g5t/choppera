@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from multiprocessing.managers import Value
+
 from scipp import Variable
 from scippnexus import Group
 from .primary import PrimarySpectrometer
@@ -363,6 +365,33 @@ def primary_time_range_at(primary: PrimarySpectrometer, distance: Variable):
     return concat((min(times), max(times)), dim='time')
 
 
+def primary_slowness(primary: PrimarySpectrometer):
+    """Find the minimum and maximum inverse neutron velocity for a given spectrometer configuration
+
+    Note
+    ----
+    The internal steps taken by this function are:
+    1. Find the allowed phase space at the source in (time, inverse velocity) space
+    2. Extract the projected polygon(s) and return their minimum and maximum inverse velocity as a 2-element Variable
+
+    Parameters
+    ----------
+    primary: choppera.PrimarySpectrometer
+        A fully constructed primary spectrometer with the method `project_transmitted_on_sample`
+
+    Returns
+    -------
+    scipp.Variable
+        The minimum and maximum passed inverse velocity for the spectrometer
+    """
+    from numpy import hstack
+    from scipp import min, max, concat, scalar
+    t_vs_slowness_polygons = primary.project_on_alternate(scalar(0., unit='m'))
+    # extract all inverse velocities from the polygons
+    slow = Variable(values=hstack([p.vertices[:, 1] for p in t_vs_slowness_polygons]), dims=['slowness'], unit='s/m')
+    return concat((min(slow), max(slow)), dim='slowness')
+
+
 def primary_pivot_time_at(primary: PrimarySpectrometer, distance: Variable):
     """Find a time at or before the earliest arrival time for the spectrometer configuration at a given path length
 
@@ -413,6 +442,95 @@ def unwrap(times: Variable, frequency: Variable, pivot: Variable):
     assert min(contiguous).value >= 0, "Negative time in unwrapped times"
     assert max(contiguous) <= period, "Time exceeds period in unwrapped times"
     return contiguous + pivot
+
+
+def unwrap_histogram(
+        times: Variable,
+        values: Variable,
+        frequency: Variable,
+        pivot: Variable
+):
+    """
+    Unwrap time edges to be contiguous and within a single period of the
+    source frequency with their associated values brought along
+
+    Parameters
+    ----------
+    times: scipp.Variable
+        The in-frame time edges. The values should be in the range (0, 1/frequency)
+        and the dimension should be 'time'. The pivot determines where in the range
+        the times start, and is used to ensure the unwrapped times are contiguous.
+    values: scipp.Variable
+        The per-time-edge pair histogram values
+    frequency: scipp.Variable
+        The repetition frequency of the PulsedSource
+    pivot: scipp.Variable
+        An arrival time at the sample position for a given spectrometer configuration
+        before the minimum time
+
+    Returns
+    -------
+    tuple[scipp.Variable, scipp.Variable]
+        The unwrapped time edges and associated intensities.
+    """
+    from scipp import floor_divide, min, max, concat
+    from numpy import hstack, vstack, transpose, any, argmax, argmin, roll
+    if times.bins is None:
+        unit = times.unit
+    else:
+        raise ValueError('Expected histogram edges, not binned data for time')
+
+    period = (1 / frequency).to(unit=unit, copy=False)
+    pivot = pivot.to(unit=unit, copy=False)
+    reference_time = floor_divide(pivot, period) * period
+
+    if times.ndim != 1:
+        raise ValueError("Only 1-D histograms are supported")
+    dim = times.dim
+    if times.size != values.sizes[dim] + 1:
+        raise ValueError(f"Not actually a histogram {times.sizes} {values.sizes}")
+
+    edges = transpose(vstack([times.values[:-1], times.values[1:]]), [1, 0])
+    leading = (edges[:, 0] + reference_time.value - pivot.value) % period.value
+    trailing = (edges[:, 1] + reference_time.value - pivot.value) % period.value
+    # handle a McStas peculiarity where bin centers are specified, so it's not
+    # unusual for the first and last bin of a frame monitor to overlap when unwrapped.
+    fwd = trailing[-1] - leading[0]
+    bkw = trailing[0] - leading[-1]
+    l0 = trailing[0] - leading[0]
+    l1 = trailing[-1] - leading[-1]
+    if 0 < fwd < l0 and fwd < l1:
+        x = (leading[-1] + trailing[0]) / 2
+        leading[-1] = trailing[0] = x
+    elif 0 < bkw < l0 and bkw < l1:
+        x = (leading[0] + trailing[-1]) / 2
+        leading[0] = trailing[-1] = x
+
+    split = trailing < leading
+    if any(split):
+        at = int(argmax(split))
+        a = leading[at] - 0
+        b = period.value - trailing[at]
+        leading = hstack([leading[:at+1], 0, leading[at+1:]])
+        trailing = hstack([trailing[:at], period.value, trailing[at:]])
+        x = values[dim, at] / (a + b)
+        values = concat([values[dim, :at], b * x, a * x , values[dim, at+1:]], dim)
+    # find the bin wrap pivot point, where the difference in bin leading edge is negative
+    diff = leading[1:] - leading[:-1]
+    if any(diff < 0):
+        point = int(argmin(diff)) + 1
+        axis = next(iter(i for i, n in enumerate(values.dims) if n == dim))
+        values.values = roll(values.values, -point, axis=axis)
+        leading = roll(leading, -point)
+        trailing = roll(trailing, -point)
+    if any(leading[1:] != trailing[:-1]):
+        raise ValueError("Mistake splitting bins")
+
+    times = Variable(values=hstack([leading, trailing[-1]]), dims=[dim], unit=unit)
+
+    assert min(times).value >= 0, "Negative time in unwrapped times"
+    assert max(times) <= period, "Time exceeds period in unwrapped times"
+    return times + pivot, values
 
 
 def primary_focus_time(primary: PrimarySpectrometer, focus_distance: Variable):
