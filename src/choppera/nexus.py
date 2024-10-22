@@ -521,6 +521,8 @@ def unwrap_histogram(
         point = int(argmin(diff)) + 1
         axis = next(iter(i for i, n in enumerate(values.dims) if n == dim))
         values.values = roll(values.values, -point, axis=axis)
+        if values.variances is not None:
+            values.variances = roll(values.variances, -point, axis=axis)
         leading = roll(leading, -point)
         trailing = roll(trailing, -point)
     if any(leading[1:] != trailing[:-1]):
