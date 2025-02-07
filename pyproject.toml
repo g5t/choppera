@@ -25,11 +25,11 @@ classifiers = [
 ]
 dependencies = [
   "polystar>=0.4.4",
-  "numpy~=2.0",
+  "numpy>=2.0",
   "scipp>=25.1",
-  "scippnexus~=24.8",
+  "scippnexus>=24.8",
   "scipy>=1.7.0",
-  "strictyaml~=1.7",
+  "strictyaml>=1.7",
 ]
 
 [project.urls]
